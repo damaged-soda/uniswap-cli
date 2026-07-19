@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from uniswap_cli.config import Settings
+from uniswap_cli.cursor import encode_cursor
 from uniswap_cli.errors import UniswapError
 from uniswap_cli.providers.subgraph import SubgraphProvider
 
@@ -171,3 +172,50 @@ async def test_graphql_errors_are_not_treated_as_empty_data() -> None:
         await provider.health()
     await client.aclose()
     assert caught.value.code == "SUBGRAPH_AUTH_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_swap_cursor_rejects_non_numeric_boundary_before_query() -> None:
+    pool = "0x4444444444444444444444444444444444444444"
+    cursor = encode_cursor(
+        "swaps-list",
+        1,
+        "v2",
+        boundary="not-a-number",
+        tie_offset=1,
+        query={"direction": "asc", "where": {"pair": pool}},
+    )
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: pytest.fail("must fail before query"))
+    )
+    provider = SubgraphProvider(_settings("v2"), 1, "v2", http_client=client)
+    with pytest.raises(UniswapError, match="timestamp boundary"):
+        await provider.list_swaps(
+            pool_id=pool,
+            start_timestamp=None,
+            end_timestamp=None,
+            limit=10,
+            cursor=cursor,
+            direction="asc",
+        )
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_non_object_subgraph_row_fails_loudly(load_fixture) -> None:
+    fixture = load_fixture("subgraph_v2_swaps.json")
+    fixture["data"]["swaps"].append("not-an-object")
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=fixture))
+    )
+    provider = SubgraphProvider(_settings("v2"), 1, "v2", http_client=client)
+    with pytest.raises(UniswapError, match="non-object row"):
+        await provider.list_swaps(
+            pool_id="0x4444444444444444444444444444444444444444",
+            start_timestamp=None,
+            end_timestamp=None,
+            limit=10,
+            cursor=None,
+            direction="asc",
+        )
+    await client.aclose()

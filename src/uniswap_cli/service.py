@@ -319,13 +319,13 @@ class UniswapService:
             subgraph_cursor: str | None = None
             subgraph_source = ""
             subgraph_indexed_block: int | None = None
+            subgraph_page_size = min(max_swaps + 1, 1_000)
             while True:
-                remaining = max_swaps - len(subgraph_rows)
                 page = await subgraph.list_swaps(
                     pool_id=pool_id,
                     start_timestamp=start_info["timestamp"],
                     end_timestamp=end_info["timestamp"],
-                    limit=min(remaining, 1_000),
+                    limit=subgraph_page_size,
                     cursor=subgraph_cursor,
                     direction="asc",
                 )
@@ -339,14 +339,14 @@ class UniswapService:
                     and start_block <= row["block_number"] <= end_block
                 )
                 subgraph_cursor = page.next_cursor
-                if subgraph_cursor is None:
-                    break
-                if len(subgraph_rows) >= max_swaps:
+                if len(subgraph_rows) > max_swaps:
                     raise UniswapError(
                         "RESULT_LIMIT_EXCEEDED",
                         "subgraph reconciliation rows exceed --max-swaps",
                         context={"max_swaps": max_swaps},
                     )
+                if subgraph_cursor is None:
+                    break
 
             rpc_page = await rpc.list_swaps(
                 protocol=self.protocol,

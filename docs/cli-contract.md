@@ -84,6 +84,8 @@ The Graph 的深分页窗口；极端情况下若超过 5000 行共享同一边�
 
 RPC 的 `range` 是请求过滤范围；`range_complete` 与 `next_cursor` 表示本页是否完整覆盖。
 `indexed_block` 是查询时 provider head，不拿用户输入的 `to-block` 冒充索引高度。
+`rpc_log_requests` 是包含 retry/fallback 的实际 HTTP 尝试数，`rpc_log_calls` 是逻辑
+`eth_getLogs` 调用数；安全阈值按前者执行。
 
 ## 错误
 

@@ -7,6 +7,52 @@ from typing import Any
 SCHEMA_VERSION = "0.1"
 
 
+def _decimal_components(value: Any) -> tuple[int, int] | None:
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not number.is_finite():
+        return None
+    sign, digits, exponent = number.as_tuple()
+    coefficient = int("".join(str(digit) for digit in digits) or "0")
+    return (-coefficient if sign and coefficient else coefficient), exponent
+
+
+def _decimal_from_components(coefficient: int, exponent: int) -> str:
+    if coefficient == 0:
+        return "0"
+    sign = "-" if coefficient < 0 else ""
+    digits = str(abs(coefficient))
+    if exponent >= 0:
+        return sign + digits + ("0" * exponent)
+    decimal_places = -exponent
+    padded = digits.rjust(decimal_places + 1, "0")
+    integer, fraction = padded[:-decimal_places], padded[-decimal_places:].rstrip("0")
+    return sign + integer + (f".{fraction}" if fraction else "")
+
+
+def exact_decimal_difference(left: Any, right: Any) -> str | None:
+    left_parts = _decimal_components(left)
+    right_parts = _decimal_components(right)
+    if left_parts is None or right_parts is None:
+        return None
+    left_coefficient, left_exponent = left_parts
+    right_coefficient, right_exponent = right_parts
+    exponent = min(left_exponent, right_exponent)
+    coefficient = left_coefficient * (10 ** (left_exponent - exponent))
+    coefficient -= right_coefficient * (10 ** (right_exponent - exponent))
+    return _decimal_from_components(coefficient, exponent)
+
+
+def exact_decimal_product(left: Any, right: Any) -> str | None:
+    left_parts = _decimal_components(left)
+    right_parts = _decimal_components(right)
+    if left_parts is None or right_parts is None:
+        return None
+    return _decimal_from_components(left_parts[0] * right_parts[0], left_parts[1] + right_parts[1])
+
+
 def utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -42,23 +88,24 @@ def decimal_string(value: Any) -> str | None:
 def decimal_to_raw(value: Any, decimals: int | str | None) -> str | None:
     if value is None or decimals is None:
         return None
+    parts = _decimal_components(value)
     try:
-        number = Decimal(str(value))
         decimal_places = int(decimals)
-    except (InvalidOperation, ValueError, TypeError):
+    except (ValueError, TypeError):
         return None
-    if not number.is_finite() or decimal_places < 0:
+    if parts is None or decimal_places < 0:
         return None
-    sign, digits, exponent = number.as_tuple()
-    coefficient = int("".join(str(digit) for digit in digits) or "0")
+    coefficient, exponent = parts
     scaled_exponent = exponent + decimal_places
     if scaled_exponent >= 0:
         raw = coefficient * (10**scaled_exponent)
     else:
-        raw, remainder = divmod(coefficient, 10 ** (-scaled_exponent))
+        sign = -1 if coefficient < 0 else 1
+        raw, remainder = divmod(abs(coefficient), 10 ** (-scaled_exponent))
         if remainder:
             return None
-    return str(-raw if sign and raw else raw)
+        raw *= sign
+    return str(raw)
 
 
 def token_model(raw: dict[str, Any] | None) -> dict[str, Any] | None:

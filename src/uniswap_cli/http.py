@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import email.utils
 import random
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
 from uniswap_cli.config import Settings
-from uniswap_cli.errors import UniswapError, redact_text
+from uniswap_cli.errors import UniswapError, redact_text, sensitive_values_from_url
 
 
 def _retry_after_seconds(value: str | None) -> float | None:
@@ -84,11 +85,14 @@ class JsonHttpClient:
         operation: str,
         headers: dict[str, str] | None = None,
         json_body: Any = None,
+        on_attempt: Callable[[], None] | None = None,
     ) -> Any:
         total_attempts = self.settings.max_retries + 1
         last_error: UniswapError | None = None
         for attempt in range(1, total_attempts + 1):
             response: httpx.Response | None = None
+            if on_attempt is not None:
+                on_attempt()
             try:
                 async with self._semaphore:
                     response = await self._client.request(
@@ -98,7 +102,12 @@ class JsonHttpClient:
                         json=json_body,
                         timeout=self.settings.timeout_seconds,
                     )
-            except httpx.HTTPError as exc:
+            except (
+                httpx.HTTPError,
+                httpx.InvalidURL,
+                httpx.StreamError,
+                httpx.CookieConflict,
+            ) as exc:
                 last_error = UniswapError(
                     "UPSTREAM_NETWORK_ERROR",
                     f"{operation} failed: {type(exc).__name__}",
@@ -141,7 +150,10 @@ class JsonHttpClient:
                         "upstream_message": _upstream_message(
                             payload,
                             response.text,
-                            sensitive_values=tuple((headers or {}).values()),
+                            sensitive_values=(
+                                *tuple((headers or {}).values()),
+                                *sensitive_values_from_url(url),
+                            ),
                         ),
                     },
                 )

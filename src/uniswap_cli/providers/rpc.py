@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -57,7 +58,9 @@ def _validate_topic(value: str) -> str:
 
 
 def _address_from_topic(topic: str) -> str:
-    return "0x" + _validate_topic(topic)[-40:]
+    if not isinstance(topic, str) or not _TOPIC_RE.fullmatch(topic):
+        raise UniswapError("RPC_INVALID_RESPONSE", "event contains an invalid address topic")
+    return "0x" + topic[-40:].lower()
 
 
 def _words(data: str) -> list[str]:
@@ -119,7 +122,13 @@ class RpcProvider:
     async def close(self) -> None:
         await self.http.close()
 
-    async def _rpc(self, method: str, params: list[Any]) -> Any:
+    async def _rpc(
+        self,
+        method: str,
+        params: list[Any],
+        *,
+        on_http_attempt: Callable[[], None] | None = None,
+    ) -> Any:
         self._request_id += 1
         last_error: UniswapError | None = None
         for endpoint in self.endpoints:
@@ -136,8 +145,11 @@ class RpcProvider:
                         "method": method,
                         "params": params,
                     },
+                    on_attempt=on_http_attempt,
                 )
             except UniswapError as exc:
+                if exc.code == "RPC_RANGE_TOO_LARGE":
+                    raise
                 last_error = exc
                 continue
             if not isinstance(payload, dict):
@@ -165,6 +177,8 @@ class RpcProvider:
                         "upstream_message": message,
                     },
                 )
+                if rpc_code in {-32700, -32600, -32601, -32602}:
+                    raise last_error
                 continue
             if "result" not in payload:
                 last_error = UniswapError(
@@ -287,6 +301,7 @@ class RpcProvider:
         topics: list[str | None],
         start_block: int,
         end_block: int,
+        on_http_attempt: Callable[[], None],
     ) -> list[dict[str, Any]]:
         result = await self._rpc(
             "eth_getLogs",
@@ -298,6 +313,7 @@ class RpcProvider:
                     "topics": topics,
                 }
             ],
+            on_http_attempt=on_http_attempt,
         )
         if not isinstance(result, list) or not all(isinstance(item, dict) for item in result):
             raise UniswapError("RPC_INVALID_RESPONSE", "eth_getLogs returned a non-list result")
@@ -315,7 +331,7 @@ class RpcProvider:
         limit: int,
         cursor: str | None,
         direction: str,
-    ) -> tuple[list[dict[str, Any]], str | None, int]:
+    ) -> tuple[list[dict[str, Any]], str | None, int, int]:
         if start_block > end_block:
             raise invalid_argument(
                 "from-block must not exceed to-block",
@@ -352,11 +368,13 @@ class RpcProvider:
             else min(end_block, cursor_block if cursor_block is not None else end_block)
         )
         collected: list[dict[str, Any]] = []
-        requests = 0
+        log_calls = 0
+        http_attempts = 0
         exhausted = False
 
-        while start_block <= current <= end_block and len(collected) <= limit:
-            if requests >= self.settings.rpc_max_log_requests:
+        def count_http_attempt() -> None:
+            nonlocal http_attempts
+            if http_attempts >= self.settings.rpc_max_log_requests:
                 raise UniswapError(
                     "RPC_RANGE_TOO_LARGE",
                     "log query exceeded UNISWAP_RPC_MAX_LOG_REQUESTS",
@@ -366,6 +384,9 @@ class RpcProvider:
                         "to_block": end_block,
                     },
                 )
+            http_attempts += 1
+
+        while start_block <= current <= end_block and len(collected) <= limit:
             if direction == "asc":
                 page_start, page_end = current, min(end_block, current + chunk_size - 1)
             else:
@@ -376,10 +397,11 @@ class RpcProvider:
                     topics=topics,
                     start_block=page_start,
                     end_block=page_end,
+                    on_http_attempt=count_http_attempt,
                 )
-                requests += 1
+                log_calls += 1
             except UniswapError as exc:
-                requests += 1
+                log_calls += 1
                 discovered = self._range_limit_from_error(exc)
                 if discovered is not None and discovered < chunk_size:
                     chunk_size = discovered
@@ -434,7 +456,7 @@ class RpcProvider:
                 log_index=_hex_int(last.get("logIndex"), field="log.logIndex"),
                 query=cursor_query,
             )
-        return returned, next_cursor, requests
+        return returned, next_cursor, log_calls, http_attempts
 
     async def raw_events(
         self,
@@ -456,7 +478,7 @@ class RpcProvider:
                 "to-block is above the current RPC head",
                 context={"to_block": end_block, "head_block": head},
             )
-        logs, next_cursor, requests = await self._collect_logs(
+        logs, next_cursor, log_calls, http_attempts = await self._collect_logs(
             kind="raw-events",
             protocol="raw",
             address=address,
@@ -494,7 +516,8 @@ class RpcProvider:
             if next_cursor
             else [],
             extra_meta={
-                "rpc_log_requests": requests,
+                "rpc_log_requests": http_attempts,
+                "rpc_log_calls": log_calls,
                 "range_complete": next_cursor is None,
                 "provider_head_block": head,
                 "data_kind": "raw-events",
@@ -564,7 +587,7 @@ class RpcProvider:
                 "to-block is above the current RPC head",
                 context={"to_block": end_block, "head_block": head},
             )
-        logs, next_cursor, requests = await self._collect_logs(
+        logs, next_cursor, log_calls, http_attempts = await self._collect_logs(
             kind="swaps-rpc",
             protocol=protocol,
             address=pool,
@@ -600,7 +623,8 @@ class RpcProvider:
                 *([f"ignored {removed_count} removed log(s)"] if removed_count else []),
             ],
             extra_meta={
-                "rpc_log_requests": requests,
+                "rpc_log_requests": http_attempts,
+                "rpc_log_calls": log_calls,
                 "range_complete": next_cursor is None,
                 "provider_head_block": head,
             },

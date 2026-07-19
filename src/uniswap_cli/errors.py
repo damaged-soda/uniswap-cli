@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 _SECRET_KEY_RE = re.compile(
     r"(?:api.?key|access.?token|auth(?:orization)?|bearer|secret|credential|password)", re.I
@@ -33,6 +33,17 @@ def safe_endpoint(value: str) -> str:
 
 def redact_text(value: str) -> str:
     return _URL_RE.sub(lambda match: safe_endpoint(match.group(0)), value)
+
+
+def sensitive_values_from_url(value: str) -> tuple[str, ...]:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return ()
+    candidates = [parsed.username, parsed.password]
+    candidates.extend(segment for segment in parsed.path.split("/") if len(segment) >= 6)
+    candidates.extend(item for _, item in parse_qsl(parsed.query) if len(item) >= 6)
+    return tuple(dict.fromkeys(item for item in candidates if item))
 
 
 def sanitize_context(value: Any, *, key: str | None = None) -> Any:

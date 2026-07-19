@@ -106,6 +106,8 @@ cursor 与 chain、protocol、provider、direction 和过滤条件共同使用�
 
 RPC 的 `meta.range` 表示请求过滤范围；`meta.range_complete` 只有在无需继续分页时才为 true，
 同时应检查 `next_cursor`。显式请求高于 RPC head 的 `to-block` 会失败，不会伪装成已覆盖。
+`UNISWAP_RPC_MAX_LOG_REQUESTS` 统计包含 retry 与 fallback 在内的实际 `eth_getLogs` HTTP
+尝试数，避免多 endpoint 配置把名义预算成倍放大。
 
 ## 输出语义
 

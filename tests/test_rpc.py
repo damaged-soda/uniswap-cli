@@ -8,7 +8,13 @@ import pytest
 from uniswap_cli.config import Settings
 from uniswap_cli.cursor import encode_cursor
 from uniswap_cli.errors import UniswapError
-from uniswap_cli.providers.rpc import V3_SWAP_TOPIC, RpcProvider, _hex_int, _human_amount
+from uniswap_cli.providers.rpc import (
+    V3_SWAP_TOPIC,
+    RpcProvider,
+    _address_from_topic,
+    _hex_int,
+    _human_amount,
+)
 
 
 def _settings(**extra: str) -> Settings:
@@ -19,6 +25,9 @@ def test_large_human_amount_is_exact_and_empty_hex_is_rejected() -> None:
     assert _human_amount(500000000000123456789012345678, 18) == "500000000000.123456789012345678"
     with pytest.raises(UniswapError):
         _hex_int("0x", field="test")
+    with pytest.raises(UniswapError) as caught:
+        _address_from_topic("0x" + "11" * 31)
+    assert caught.value.code == "RPC_INVALID_RESPONSE"
 
 
 @pytest.mark.asyncio
@@ -89,6 +98,7 @@ async def test_eth_get_logs_adapts_to_provider_block_limit() -> None:
     assert result.data == []
     assert requests == [(100, 119), (100, 109), (110, 119)]
     assert result.extra_meta["rpc_log_requests"] == 3
+    assert result.extra_meta["rpc_log_calls"] == 3
     assert result.indexed_block == 119
     assert result.extra_meta["range_complete"] is True
 
@@ -130,6 +140,74 @@ async def test_log_cursor_is_bound_to_address_topics_and_range() -> None:
             direction="asc",
         )
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_log_request_cap_counts_actual_http_attempts_across_retries() -> None:
+    log_attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal log_attempts
+        payload = json.loads(request.content)
+        if payload["method"] == "eth_blockNumber":
+            return httpx.Response(
+                200, json={"jsonrpc": "2.0", "id": payload["id"], "result": hex(119)}
+            )
+        log_attempts += 1
+        return httpx.Response(500, json={"message": "temporary failure"})
+
+    settings = Settings.from_env(
+        {
+            "RPC_URL_1": "https://one.test,https://two.test,https://three.test",
+            "UNISWAP_HTTP_MAX_RETRIES": "2",
+            "UNISWAP_HTTP_RETRY_BACKOFF_SECONDS": "0.001",
+            "UNISWAP_RPC_MAX_LOG_REQUESTS": "2",
+        }
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = RpcProvider(settings, 1, http_client=client)
+    with pytest.raises(UniswapError) as caught:
+        await provider.raw_events(
+            address="0x" + "11" * 20,
+            topics=[V3_SWAP_TOPIC],
+            start_block=100,
+            end_block=119,
+            limit=100,
+            cursor=None,
+            direction="asc",
+        )
+    await client.aclose()
+    assert caught.value.code == "RPC_RANGE_TOO_LARGE"
+    assert log_attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_deterministic_json_rpc_error_does_not_fan_out_to_fallbacks() -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        payload = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "error": {"code": -32601, "message": "method not found"},
+            },
+        )
+
+    settings = Settings.from_env(
+        {"RPC_URL_1": "https://one.test,https://two.test,https://three.test"}
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = RpcProvider(settings, 1, http_client=client)
+    with pytest.raises(UniswapError) as caught:
+        await provider.block_number()
+    await client.aclose()
+    assert caught.value.code == "RPC_ERROR"
+    assert attempts == 1
 
 
 @pytest.mark.asyncio

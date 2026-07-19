@@ -17,6 +17,8 @@ arguments, files, or output.
 - Use `raw events` for exact logs or v4 PoolManager events.
 - Use `raw graphql` only when the normalized commands lack a field. Treat its shape as unstable.
 - Run `doctor` when credentials, indexing status, archive access, or chain identity are uncertain.
+  Treat `data.degraded: true` as a signal to inspect every provider check even when one path remains
+  usable.
 
 ## Start with discovery
 

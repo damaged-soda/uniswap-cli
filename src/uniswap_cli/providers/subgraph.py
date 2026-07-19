@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -13,6 +13,8 @@ from uniswap_cli.http import JsonHttpClient
 from uniswap_cli.models import (
     decimal_string,
     decimal_to_raw,
+    exact_decimal_difference,
+    exact_decimal_product,
     normalize_address,
     token_model,
     utc_from_timestamp,
@@ -108,6 +110,38 @@ def _next_page_state(
             break
         trailing += 1
     return boundary, trailing
+
+
+def _object_rows(value: Any, *, entity: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise UniswapError(
+            "SUBGRAPH_INVALID_RESPONSE",
+            f"{entity} collection contains a non-object row",
+            context={"entity": entity},
+        )
+    return value
+
+
+def _numeric_boundary(value: Any | None) -> Any | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise invalid_argument("cursor contains an invalid numeric boundary")
+    try:
+        parsed = Decimal(str(value))
+    except InvalidOperation as exc:
+        raise invalid_argument("cursor contains an invalid numeric boundary") from exc
+    if not parsed.is_finite():
+        raise invalid_argument("cursor contains an invalid numeric boundary")
+    return value
+
+
+def _timestamp_boundary(value: Any | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise invalid_argument("cursor contains an invalid timestamp boundary")
+    return value
 
 
 def _meta_from_data(data: dict[str, Any]) -> tuple[int | None, dict[str, Any]]:
@@ -265,9 +299,12 @@ def _pool_v34(raw: dict[str, Any], protocol: str) -> dict[str, Any]:
 
 
 def _signed_v2_amount(raw: dict[str, Any], side: str) -> str:
-    amount_in = Decimal(str(raw.get(f"amount{side}In", "0")))
-    amount_out = Decimal(str(raw.get(f"amount{side}Out", "0")))
-    return decimal_string(amount_in - amount_out) or "0"
+    amount = exact_decimal_difference(
+        raw.get(f"amount{side}In", "0"), raw.get(f"amount{side}Out", "0")
+    )
+    if amount is None:
+        raise UniswapError("SUBGRAPH_INVALID_RESPONSE", "v2 swap amount is invalid")
+    return amount
 
 
 def _swap_model(raw: dict[str, Any], protocol: str) -> dict[str, Any]:
@@ -517,6 +554,7 @@ class SubgraphProvider:
             protocol=self.protocol,
             query=cursor_query,
         )
+        boundary = _numeric_boundary(boundary)
         effective_where = dict(where)
         if boundary is not None:
             comparison = "gte" if direction == "asc" else "lte"
@@ -535,13 +573,10 @@ class SubgraphProvider:
             {"first": limit, "skip": tie_offset, "where": effective_where},
             operation="list pools",
         )
-        rows = data.get(entity)
-        if not isinstance(rows, list):
-            raise UniswapError("SUBGRAPH_INVALID_RESPONSE", "pool collection is missing")
+        rows = _object_rows(data.get(entity), entity=entity)
         normalized = [
             _pool_v2(item) if self.protocol == "v2" else _pool_v34(item, self.protocol)
             for item in rows
-            if isinstance(item, dict)
         ]
         next_cursor = None
         if len(rows) == limit:
@@ -638,10 +673,11 @@ class SubgraphProvider:
             protocol=self.protocol,
             query=cursor_query,
         )
+        boundary = _timestamp_boundary(boundary)
         effective_where = dict(where)
         if boundary is not None:
             comparison = "gte" if direction == "asc" else "lte"
-            effective_where[f"timestamp_{comparison}"] = int(boundary)
+            effective_where[f"timestamp_{comparison}"] = boundary
         query = f"""
         query Swaps($first: Int!, $skip: Int!, $where: Swap_filter!) {{
           {_META}
@@ -656,16 +692,11 @@ class SubgraphProvider:
             {"first": limit, "skip": tie_offset, "where": effective_where},
             operation="list swaps",
         )
-        rows = data.get("swaps")
-        if not isinstance(rows, list):
-            raise UniswapError("SUBGRAPH_INVALID_RESPONSE", "swap collection is missing")
-        normalized = [_swap_model(item, self.protocol) for item in rows if isinstance(item, dict)]
+        rows = _object_rows(data.get("swaps"), entity="swaps")
+        normalized = [_swap_model(item, self.protocol) for item in rows]
         next_cursor = None
         if len(rows) == limit:
-            page_timestamps = [
-                _required_int(item, "timestamp") if isinstance(item, dict) else None
-                for item in rows
-            ]
+            page_timestamps = [_required_int(item, "timestamp") for item in rows]
             next_boundary, next_tie_offset = _next_page_state(page_timestamps, boundary, tie_offset)
             next_cursor = encode_cursor(
                 "swaps-list",
@@ -757,9 +788,10 @@ class SubgraphProvider:
             protocol=self.protocol,
             query=cursor_query,
         )
+        boundary = _timestamp_boundary(boundary)
         effective_where = dict(where)
         if boundary is not None:
-            effective_where[f"{time_field}_gte"] = int(boundary)
+            effective_where[f"{time_field}_gte"] = boundary
         query = f"""
         query Series($first: Int!, $skip: Int!, $where: {filter_type}!) {{
           {_META}
@@ -774,20 +806,14 @@ class SubgraphProvider:
             {"first": limit, "skip": tie_offset, "where": effective_where},
             operation="get series",
         )
-        raw_rows = data.get(entity)
-        if not isinstance(raw_rows, list):
-            raise UniswapError("SUBGRAPH_INVALID_RESPONSE", "series collection is missing")
+        raw_rows = _object_rows(data.get(entity), entity=entity)
         rows = [
             self._series_point(item, pool_id=pool_id, metric=metric, interval=interval)
             for item in raw_rows
-            if isinstance(item, dict)
         ]
         next_cursor = None
         if len(raw_rows) == limit:
-            page_timestamps = [
-                _required_int(item, time_field) if isinstance(item, dict) else None
-                for item in raw_rows
-            ]
+            page_timestamps = [_required_int(item, time_field) for item in raw_rows]
             next_boundary, next_tie_offset = _next_page_state(page_timestamps, boundary, tie_offset)
             next_cursor = encode_cursor(
                 f"series-{interval}-{metric}",
@@ -827,7 +853,9 @@ class SubgraphProvider:
         if self.protocol == "v2":
             volume = raw.get("hourlyVolumeUSD") if interval == "1h" else raw.get("dailyVolumeUSD")
             tx_count = raw.get("hourlyTxns") if interval == "1h" else raw.get("dailyTxns")
-            fees = Decimal(str(volume or "0")) * Decimal("0.003")
+            fees = exact_decimal_product(volume or "0", "0.003")
+            if fees is None:
+                raise UniswapError("SUBGRAPH_INVALID_RESPONSE", "v2 series volume is invalid")
             point = {
                 "id": point_id,
                 "pool_id": pool_id.lower(),
