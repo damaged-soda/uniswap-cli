@@ -1,6 +1,6 @@
 # CLI 契约草案
 
-状态：待实现，不承诺兼容性
+状态：`schema_version = 0.1` 已实现
 日期：2026-07-19
 
 ## 设计原则
@@ -21,6 +21,7 @@ uniswap
 ├── pools list
 ├── pools get
 ├── swaps list
+├── swaps reconcile
 ├── series get
 ├── raw graphql
 ├── raw events
@@ -66,8 +67,8 @@ uniswap
 }
 ```
 
-实际字段会在数据源 spike 后定型。地址输出统一使用可比较的规范形式；原始整数不得只以
-IEEE-754 number 表达。
+地址输出统一为小写可比较形式；原始整数使用十进制字符串，不以 IEEE-754 number 表达。
+实体 schema 见 [`schemas/`](../schemas/)。
 
 ## 错误
 
@@ -77,11 +78,13 @@ IEEE-754 number 表达。
 
 ## 环境变量
 
-变量名在实现阶段最终确定，预计至少覆盖：
+主要变量：
 
-- The Graph API key
-- 每条链的 RPC URL 或 provider profile
-- 默认 chain、provider 和超时
-- 可选商业 provider 的凭据
+- `UNISWAP_THE_GRAPH_API_KEY`
+- `UNISWAP_SUBGRAPH_URL_<chain-id>_<VERSION>`
+- `UNISWAP_SUBGRAPH_AUTH_TOKEN_<chain-id>_<VERSION>`
+- `UNISWAP_RPC_URL_<chain-id>`，缺失时继承 `RPC_URL_<chain-id>`
+- `UNISWAP_DEFAULT_CHAIN` / `UNISWAP_DEFAULT_PROTOCOL`
+- `UNISWAP_HTTP_*` 与 `UNISWAP_RPC_MAX_*` 安全阈值
 
 `uniswap doctor` 只报告配置是否存在和连通性，不回显 secret 或带 secret 的完整 endpoint。

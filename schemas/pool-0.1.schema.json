@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/damaged-soda/uniswap-cli/schemas/pool-0.1.schema.json",
+  "title": "Normalized Uniswap pool 0.1",
+  "type": "object",
+  "required": ["id", "protocol_version", "token0", "token1"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^0x[0-9a-f]+$" },
+    "pool_address": { "type": ["string", "null"], "pattern": "^0x[0-9a-f]{40}$" },
+    "protocol_version": { "enum": ["v2", "v3", "v4"] },
+    "token0": { "$ref": "#/$defs/token" },
+    "token1": { "$ref": "#/$defs/token" },
+    "fee_tier": { "type": "string", "pattern": "^-?[0-9]+$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_at_timestamp": { "type": "integer", "minimum": 0 },
+    "created_at_block": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "token": {
+      "type": "object",
+      "required": ["address", "symbol", "name", "decimals"],
+      "properties": {
+        "address": { "type": "string", "pattern": "^0x[0-9a-f]{40}$" },
+        "symbol": { "type": ["string", "null"] },
+        "name": { "type": ["string", "null"] },
+        "decimals": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "additionalProperties": true
+    }
+  }
+}

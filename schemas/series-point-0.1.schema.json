@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/damaged-soda/uniswap-cli/schemas/series-point-0.1.schema.json",
+  "title": "Normalized Uniswap series point 0.1",
+  "type": "object",
+  "required": [
+    "id",
+    "pool_id",
+    "protocol_version",
+    "interval",
+    "timestamp",
+    "datetime",
+    "metric",
+    "value"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "pool_id": { "type": "string", "pattern": "^0x[0-9a-f]+$" },
+    "protocol_version": { "enum": ["v2", "v3", "v4"] },
+    "interval": { "enum": ["1h", "1d"] },
+    "timestamp": { "type": "integer", "minimum": 0 },
+    "datetime": { "type": "string", "format": "date-time" },
+    "metric": { "enum": ["volume-usd", "tvl-usd", "fees-usd", "tx-count", "ohlcv"] },
+    "value": {}
+  },
+  "additionalProperties": true
+}

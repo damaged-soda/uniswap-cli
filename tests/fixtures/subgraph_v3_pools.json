@@ -1,0 +1,45 @@
+{
+  "data": {
+    "_meta": {
+      "block": {
+        "number": 25566569,
+        "hash": "0xabc123"
+      },
+      "deployment": "QmV3Fixture",
+      "hasIndexingErrors": false
+    },
+    "pools": [
+      {
+        "id": "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640",
+        "createdAtTimestamp": "1620250931",
+        "createdAtBlockNumber": "12376729",
+        "feeTier": "500",
+        "liquidity": "6241328860797224803",
+        "sqrtPrice": "1829771527691879668502184644211500",
+        "tick": "200957",
+        "token0Price": "0.000533",
+        "token1Price": "1876.17",
+        "volumeToken0": "1000000.25",
+        "volumeToken1": "532.1",
+        "volumeUSD": "2000000.5",
+        "feesUSD": "1000.25",
+        "txCount": "123456",
+        "totalValueLockedToken0": "100000",
+        "totalValueLockedToken1": "53.2",
+        "totalValueLockedUSD": "200000.1",
+        "token0": {
+          "id": "0xA0b86991c6218b36c1d19d4a2e9eb0cE3606eB48",
+          "symbol": "USDC",
+          "name": "USD Coin",
+          "decimals": "6"
+        },
+        "token1": {
+          "id": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          "symbol": "WETH",
+          "name": "Wrapped Ether",
+          "decimals": "18"
+        }
+      }
+    ]
+  }
+}

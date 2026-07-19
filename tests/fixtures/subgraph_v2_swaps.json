@@ -1,0 +1,47 @@
+{
+  "data": {
+    "_meta": {
+      "block": {
+        "number": 25566569,
+        "hash": "0xdef456"
+      },
+      "deployment": "QmV2Fixture",
+      "hasIndexingErrors": false
+    },
+    "swaps": [
+      {
+        "id": "0xtx-0",
+        "timestamp": "1784461139",
+        "sender": "0x1111111111111111111111111111111111111111",
+        "from": "0x2222222222222222222222222222222222222222",
+        "to": "0x3333333333333333333333333333333333333333",
+        "amount0In": "10.5",
+        "amount1In": "0",
+        "amount0Out": "0",
+        "amount1Out": "0.005",
+        "amountUSD": "20.5",
+        "logIndex": "7",
+        "transaction": {
+          "id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "blockNumber": "25566509",
+          "timestamp": "1784461139"
+        },
+        "pair": {
+          "id": "0x4444444444444444444444444444444444444444",
+          "token0": {
+            "id": "0x5555555555555555555555555555555555555555",
+            "symbol": "USDC",
+            "name": "USD Coin",
+            "decimals": "6"
+          },
+          "token1": {
+            "id": "0x6666666666666666666666666666666666666666",
+            "symbol": "WETH",
+            "name": "Wrapped Ether",
+            "decimals": "18"
+          }
+        }
+      }
+    ]
+  }
+}

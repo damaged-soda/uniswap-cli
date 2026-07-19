@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/damaged-soda/uniswap-cli/schemas/response-0.1.schema.json",
+  "title": "uniswap-cli response envelope 0.1",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {
+      "const": "0.1"
+    },
+    "data": true,
+    "meta": {
+      "type": "object",
+      "required": [
+        "chain_id",
+        "chain",
+        "protocol_version",
+        "provider",
+        "source_id",
+        "queried_at",
+        "indexed_block",
+        "range",
+        "next_cursor",
+        "warnings"
+      ],
+      "properties": {
+        "chain_id": { "type": "integer", "minimum": 1 },
+        "chain": { "type": "string", "minLength": 1 },
+        "protocol_version": { "enum": ["v2", "v3", "v4"] },
+        "provider": { "enum": ["local", "subgraph", "rpc", "composite"] },
+        "source_id": { "type": "string", "minLength": 1 },
+        "queried_at": { "type": "string", "format": "date-time" },
+        "indexed_block": { "type": ["integer", "null"], "minimum": 0 },
+        "range": { "type": "object" },
+        "next_cursor": { "type": ["string", "null"] },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "retryable", "context"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+$" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "context": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    { "required": ["data", "meta"], "not": { "required": ["error"] } },
+    { "required": ["error"], "not": { "required": ["data"] } }
+  ],
+  "additionalProperties": false
+}
