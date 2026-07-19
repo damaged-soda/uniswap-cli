@@ -22,6 +22,27 @@ def test_large_human_amount_is_exact_and_empty_hex_is_rejected() -> None:
 
 
 @pytest.mark.asyncio
+async def test_rpc_source_id_reports_the_endpoint_that_succeeded() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if request.url.host == "first.test":
+            return httpx.Response(500, json={"message": "unavailable"})
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": payload["id"], "result": hex(123)})
+
+    settings = Settings.from_env(
+        {
+            "RPC_URL_1": "https://first.test,https://second.test",
+            "UNISWAP_HTTP_MAX_RETRIES": "0",
+        }
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = RpcProvider(settings, 1, http_client=client)
+    assert await provider.block_number() == 123
+    await client.aclose()
+    assert provider._source_id() == "rpc:1:2"
+
+
+@pytest.mark.asyncio
 async def test_eth_get_logs_adapts_to_provider_block_limit() -> None:
     requests: list[tuple[int, int]] = []
 

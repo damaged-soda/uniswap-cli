@@ -160,7 +160,7 @@ def _required_text(raw: dict[str, Any], field: str) -> str:
 
 
 def _token_with_metrics(raw: dict[str, Any], protocol: str) -> dict[str, Any]:
-    result = token_model(raw) or {}
+    result = _required_token(raw, field="token")
     if protocol == "v2":
         result.update(
             _compact(

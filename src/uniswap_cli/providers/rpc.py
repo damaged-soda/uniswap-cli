@@ -108,6 +108,7 @@ class RpcProvider:
         self.http = JsonHttpClient(settings, client=http_client)
         self._request_id = 0
         self._block_cache: dict[int, dict[str, Any]] = {}
+        self._used_endpoint_labels: set[str] = set()
 
     async def __aenter__(self) -> RpcProvider:
         return self
@@ -172,10 +173,19 @@ class RpcProvider:
                     context={"endpoint": endpoint.label},
                 )
                 continue
+            self._used_endpoint_labels.add(endpoint.label)
             return payload["result"]
         if last_error is not None:
             raise last_error
         raise UniswapError("RPC_UNAVAILABLE", f"no RPC endpoint accepted {method}")
+
+    def _source_id(self) -> str:
+        labels = sorted(self._used_endpoint_labels)
+        if not labels:
+            return self.endpoints[0].label
+        if len(labels) == 1:
+            return labels[0]
+        return "rpc-composite:" + ",".join(labels)
 
     async def chain_id_value(self) -> int:
         return _hex_int(await self._rpc("eth_chainId", []), field="chainId")
@@ -225,7 +235,7 @@ class RpcProvider:
                 "archive": archive,
             },
             provider="rpc",
-            source_id=self.endpoints[0].label,
+            source_id=self._source_id(),
             indexed_block=head,
         )
 
@@ -476,7 +486,7 @@ class RpcProvider:
         return ProviderResult(
             data=data,
             provider="rpc",
-            source_id=self.endpoints[0].label,
+            source_id=self._source_id(),
             indexed_block=head,
             next_cursor=next_cursor,
             covered_range={"from_block": start_block, "to_block": end_block},
@@ -576,7 +586,7 @@ class RpcProvider:
         return ProviderResult(
             data=data,
             provider="rpc",
-            source_id=self.endpoints[0].label,
+            source_id=self._source_id(),
             indexed_block=head,
             next_cursor=next_cursor,
             covered_range={"from_block": start_block, "to_block": end_block},
