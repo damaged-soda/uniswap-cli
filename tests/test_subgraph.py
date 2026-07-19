@@ -31,7 +31,6 @@ async def test_v3_pool_list_normalizes_and_paginates(load_fixture) -> None:
         order_by="tvl-usd",
         direction="desc",
     )
-    await client.aclose()
 
     assert result.indexed_block == 25566569
     assert result.next_cursor is not None
@@ -40,6 +39,15 @@ async def test_v3_pool_list_normalizes_and_paginates(load_fixture) -> None:
     assert pool["fee_tier"] == "500"
     assert pool["token0"]["symbol"] == "USDC"
     assert pool["tvl_usd"] == "200000.1"
+
+    with pytest.raises(UniswapError, match="cursor filters"):
+        await provider.list_pools(
+            limit=1,
+            cursor=result.next_cursor,
+            order_by="tvl-usd",
+            direction="asc",
+        )
+    await client.aclose()
 
 
 @pytest.mark.asyncio

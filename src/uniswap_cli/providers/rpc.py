@@ -308,10 +308,17 @@ class RpcProvider:
 
         cursor_block: int | None = None
         cursor_log_index: int | None = None
+        cursor_query = {
+            "address": address,
+            "topics": topics,
+            "start_block": start_block,
+            "end_block": end_block,
+            "direction": direction,
+        }
         if cursor:
             state = decode_cursor(cursor, kind=kind, chain_id=self.chain_id, protocol=protocol)
-            if state.get("direction") != direction:
-                raise invalid_argument("cursor direction does not match this query")
+            if state.get("query") != cursor_query:
+                raise invalid_argument("cursor filters do not match this query")
             cursor_block = state.get("block")
             cursor_log_index = state.get("log_index")
             if not isinstance(cursor_block, int) or not isinstance(cursor_log_index, int):
@@ -404,7 +411,7 @@ class RpcProvider:
                 protocol,
                 block=_hex_int(last.get("blockNumber"), field="log.blockNumber"),
                 log_index=_hex_int(last.get("logIndex"), field="log.logIndex"),
-                direction=direction,
+                query=cursor_query,
             )
         return returned, next_cursor, requests
 

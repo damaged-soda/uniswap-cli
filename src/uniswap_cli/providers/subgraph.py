@@ -68,10 +68,19 @@ def _validate_pool_id(value: str, protocol: str) -> str:
     return value.lower()
 
 
-def _offset(cursor: str | None, *, kind: str, chain_id: int, protocol: str) -> int:
+def _offset(
+    cursor: str | None,
+    *,
+    kind: str,
+    chain_id: int,
+    protocol: str,
+    query: dict[str, Any],
+) -> int:
     if cursor is None:
         return 0
     state = decode_cursor(cursor, kind=kind, chain_id=chain_id, protocol=protocol)
+    if state.get("query") != query:
+        raise invalid_argument("cursor filters do not match this query")
     value = state.get("offset")
     if not isinstance(value, int) or value < 0:
         raise invalid_argument("cursor contains an invalid offset")
@@ -401,12 +410,6 @@ class SubgraphProvider:
                 "order-by must be tvl-usd, volume-usd, created, or tx-count",
                 order_by=order_by,
             ) from exc
-        offset = _offset(
-            cursor,
-            kind="pools-list",
-            chain_id=self.chain_id,
-            protocol=self.protocol,
-        )
         entity = "pairs" if self.protocol == "v2" else "pools"
         filter_type = "Pair_filter" if self.protocol == "v2" else "Pool_filter"
         where = _compact(
@@ -414,6 +417,18 @@ class SubgraphProvider:
                 "token0": _validate_token_address(token0, field="token0") if token0 else None,
                 "token1": _validate_token_address(token1, field="token1") if token1 else None,
             }
+        )
+        cursor_query = {
+            "order_by": order_by,
+            "direction": direction,
+            "where": where,
+        }
+        offset = _offset(
+            cursor,
+            kind="pools-list",
+            chain_id=self.chain_id,
+            protocol=self.protocol,
+            query=cursor_query,
         )
         query = f"""
         query Pools($first: Int!, $skip: Int!, $where: {filter_type}!) {{
@@ -444,6 +459,7 @@ class SubgraphProvider:
                 self.chain_id,
                 self.protocol,
                 offset=offset + len(rows),
+                query=cursor_query,
             )
         return ProviderResult(
             data=normalized,
@@ -512,12 +528,6 @@ class SubgraphProvider:
         pool_id = _validate_pool_id(pool_id, self.protocol)
         if direction not in {"asc", "desc"}:
             raise invalid_argument("direction must be asc or desc", direction=direction)
-        offset = _offset(
-            cursor,
-            kind="swaps-list",
-            chain_id=self.chain_id,
-            protocol=self.protocol,
-        )
         relation = "pair" if self.protocol == "v2" else "pool"
         where = _compact(
             {
@@ -525,6 +535,14 @@ class SubgraphProvider:
                 "timestamp_gte": start_timestamp,
                 "timestamp_lte": end_timestamp,
             }
+        )
+        cursor_query = {"direction": direction, "where": where}
+        offset = _offset(
+            cursor,
+            kind="swaps-list",
+            chain_id=self.chain_id,
+            protocol=self.protocol,
+            query=cursor_query,
         )
         query = f"""
         query Swaps($first: Int!, $skip: Int!, $where: Swap_filter!) {{
@@ -551,6 +569,7 @@ class SubgraphProvider:
                 self.chain_id,
                 self.protocol,
                 offset=offset + len(rows),
+                query=cursor_query,
             )
         return ProviderResult(
             data=normalized,
@@ -586,12 +605,6 @@ class SubgraphProvider:
             )
         if self.protocol == "v2" and metric == "ohlcv":
             raise unsupported("v2 pool series does not expose pool OHLC fields", metric=metric)
-        offset = _offset(
-            cursor,
-            kind=f"series-{interval}-{metric}",
-            chain_id=self.chain_id,
-            protocol=self.protocol,
-        )
         if self.protocol == "v2":
             if interval == "1h":
                 entity, filter_type, time_field = (
@@ -632,6 +645,14 @@ class SubgraphProvider:
                 f"{time_field}_lte": end_timestamp,
             }
         )
+        cursor_query = {"where": where}
+        offset = _offset(
+            cursor,
+            kind=f"series-{interval}-{metric}",
+            chain_id=self.chain_id,
+            protocol=self.protocol,
+            query=cursor_query,
+        )
         query = f"""
         query Series($first: Int!, $skip: Int!, $where: {filter_type}!) {{
           {_META}
@@ -661,6 +682,7 @@ class SubgraphProvider:
                 self.chain_id,
                 self.protocol,
                 offset=offset + len(raw_rows),
+                query=cursor_query,
             )
         return ProviderResult(
             data=rows,

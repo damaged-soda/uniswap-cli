@@ -6,6 +6,8 @@ import httpx
 import pytest
 
 from uniswap_cli.config import Settings
+from uniswap_cli.cursor import encode_cursor
+from uniswap_cli.errors import UniswapError
 from uniswap_cli.providers.rpc import V3_SWAP_TOPIC, RpcProvider
 
 
@@ -56,6 +58,41 @@ async def test_eth_get_logs_adapts_to_provider_block_limit() -> None:
     assert result.data == []
     assert requests == [(100, 119), (100, 109), (110, 119)]
     assert result.extra_meta["rpc_log_requests"] == 3
+
+
+@pytest.mark.asyncio
+async def test_log_cursor_is_bound_to_address_topics_and_range() -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _request: pytest.fail("mismatched cursor must fail before an RPC request")
+        )
+    )
+    provider = RpcProvider(_settings(), 1, http_client=client)
+    cursor = encode_cursor(
+        "raw-events",
+        1,
+        "raw",
+        block=100,
+        log_index=0,
+        query={
+            "address": "0x" + "22" * 20,
+            "topics": [V3_SWAP_TOPIC],
+            "start_block": 100,
+            "end_block": 119,
+            "direction": "asc",
+        },
+    )
+    with pytest.raises(UniswapError, match="cursor filters"):
+        await provider.raw_events(
+            address="0x" + "11" * 20,
+            topics=[V3_SWAP_TOPIC],
+            start_block=100,
+            end_block=119,
+            limit=100,
+            cursor=cursor,
+            direction="asc",
+        )
+    await client.aclose()
 
 
 @pytest.mark.asyncio
