@@ -1,0 +1,4 @@
+interface:
+  display_name: "Uniswap Data"
+  short_description: "查询 Uniswap 池、交易、历史指标与链上日志"
+  default_prompt: "Use $uniswap to query a Uniswap pool and explain the data provenance."

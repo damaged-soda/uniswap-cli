@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/damaged-soda/uniswap-cli/schemas/swap-0.1.schema.json",
+  "title": "Normalized Uniswap swap 0.1",
+  "type": "object",
+  "required": [
+    "id",
+    "protocol_version",
+    "pool_id",
+    "transaction_hash",
+    "log_index",
+    "block_number",
+    "timestamp",
+    "datetime",
+    "token0",
+    "token1",
+    "amount0",
+    "amount1",
+    "amount0_raw",
+    "amount1_raw"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "protocol_version": { "enum": ["v2", "v3", "v4"] },
+    "pool_id": { "type": "string", "pattern": "^0x[0-9a-f]+$" },
+    "transaction_hash": { "type": "string", "pattern": "^0x[0-9a-f]{64}$" },
+    "log_index": { "type": "integer", "minimum": 0 },
+    "block_number": { "type": "integer", "minimum": 0 },
+    "timestamp": { "type": "integer", "minimum": 0 },
+    "datetime": { "type": "string", "format": "date-time" },
+    "token0": { "$ref": "pool-0.1.schema.json#/$defs/token" },
+    "token1": { "$ref": "pool-0.1.schema.json#/$defs/token" },
+    "amount0": { "type": "string", "pattern": "^-?[0-9]+(?:\\.[0-9]+)?$" },
+    "amount1": { "type": "string", "pattern": "^-?[0-9]+(?:\\.[0-9]+)?$" },
+    "amount0_raw": { "type": "string", "pattern": "^-?[0-9]+$" },
+    "amount1_raw": { "type": "string", "pattern": "^-?[0-9]+$" },
+    "amount_usd": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}

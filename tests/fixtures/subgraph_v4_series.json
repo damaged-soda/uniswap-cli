@@ -1,0 +1,36 @@
+{
+  "data": {
+    "_meta": {
+      "block": {
+        "number": 25566569,
+        "hash": "0x987abc"
+      },
+      "deployment": "QmV4Fixture",
+      "hasIndexingErrors": false
+    },
+    "poolDayDatas": [
+      {
+        "id": "0xpool-1784419200",
+        "date": 1784419200,
+        "liquidity": "123456789",
+        "sqrtPrice": "987654321",
+        "token0Price": "0.0005",
+        "token1Price": "2000",
+        "tick": "202000",
+        "tvlUSD": "500000.25",
+        "volumeToken0": "10000",
+        "volumeToken1": "5",
+        "volumeUSD": "20000.5",
+        "feesUSD": "10.25",
+        "txCount": "42",
+        "open": "1990",
+        "high": "2025",
+        "low": "1980",
+        "close": "2000",
+        "pool": {
+          "id": "0x7777777777777777777777777777777777777777777777777777777777777777"
+        }
+      }
+    ]
+  }
+}

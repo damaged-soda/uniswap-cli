@@ -86,3 +86,6 @@ USD 定价差异和协议版本语义差异。链上日志是真值来源，但 
 
 采购决策必须用代表性查询做准确性、延迟、覆盖、限流和成本对比，并保留 RPC/subgraph
 抽样对账，不能只比较营销功能表。
+
+`0.1` 已按这些判据完成 [CoinGecko Onchain API 评估](commercial-provider-evaluation.md)，
+结论是暂不接入，等待跨链 OHLCV、细粒度 candle 或 SLA 的真实需求。
