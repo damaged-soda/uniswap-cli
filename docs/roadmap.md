@@ -30,7 +30,7 @@
 - [x] 固化 JSON schema 与 provenance metadata
 - [x] 提供 fixture 单测和受控 RPC live test
 - [x] 编写仓内 `SKILL.md`
-- [ ] 在 personal manifest 登记 skill，并铺设/验证发现链接
+- [x] 在 personal manifest 登记 skill，并铺设/验证发现链接
 
 退出条件：agent 能从 pool 标识稳定取得指定窗口的 swap 与日级指标，并能判断结果来源和
 完整性。
