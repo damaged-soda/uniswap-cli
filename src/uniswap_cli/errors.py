@@ -6,7 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-_SECRET_KEY_RE = re.compile(r"(?:api.?key|token|secret|authorization|credential|password)", re.I)
+_SECRET_KEY_RE = re.compile(
+    r"(?:api.?key|access.?token|auth(?:orization)?|bearer|secret|credential|password)", re.I
+)
 _URL_RE = re.compile(r"https?://[^\s\"']+", re.I)
 
 
@@ -16,8 +18,16 @@ def safe_endpoint(value: str) -> str:
         parsed = urlsplit(value)
     except ValueError:
         return "[redacted-endpoint]"
-    if parsed.scheme in {"http", "https"} and parsed.netloc:
-        return f"{parsed.scheme}://{parsed.netloc}/***"
+    if parsed.scheme in {"http", "https"} and parsed.hostname:
+        host = parsed.hostname
+        if ":" in host:
+            host = f"[{host}]"
+        try:
+            port = parsed.port
+        except ValueError:
+            return "[redacted-endpoint]"
+        authority = f"{host}:{port}" if port is not None else host
+        return f"{parsed.scheme}://{authority}/***"
     return "[redacted-endpoint]"
 
 

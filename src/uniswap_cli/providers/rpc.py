@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -11,7 +10,7 @@ from uniswap_cli.config import Endpoint, Settings
 from uniswap_cli.cursor import decode_cursor, encode_cursor
 from uniswap_cli.errors import UniswapError, invalid_argument, unsupported
 from uniswap_cli.http import JsonHttpClient
-from uniswap_cli.models import decimal_string, normalize_address, utc_from_timestamp
+from uniswap_cli.models import normalize_address, utc_from_timestamp
 from uniswap_cli.providers.base import ProviderResult
 
 V2_SWAP_TOPIC = "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822"
@@ -21,7 +20,7 @@ V4_POOL_MANAGER = "0x000000000004444c5dc75cb358380d2e3de08a90"
 
 _ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _TOPIC_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
-_HEX_RE = re.compile(r"^0x[0-9a-fA-F]*$")
+_HEX_RE = re.compile(r"^0x[0-9a-fA-F]+$")
 _RANGE_LIMIT_RE = re.compile(r"up to (?:a )?([0-9,]+) block range", re.I)
 
 _TOKEN0_SELECTOR = "0x0dfe1681"
@@ -58,7 +57,7 @@ def _validate_topic(value: str) -> str:
 
 
 def _address_from_topic(topic: str) -> str:
-    return "0x" + topic[-40:].lower()
+    return "0x" + _validate_topic(topic)[-40:]
 
 
 def _words(data: str) -> list[str]:
@@ -80,7 +79,19 @@ def _signed(word: str) -> int:
 
 
 def _human_amount(raw: int, decimals: int) -> str:
-    return decimal_string(Decimal(raw) / (Decimal(10) ** decimals)) or "0"
+    if decimals < 0:
+        raise UniswapError(
+            "RPC_INVALID_RESPONSE",
+            "token decimals cannot be negative",
+            context={"decimals": decimals},
+        )
+    sign = "-" if raw < 0 else ""
+    digits = str(abs(raw))
+    if decimals == 0:
+        return sign + digits
+    padded = digits.rjust(decimals + 1, "0")
+    integer, fraction = padded[:-decimals], padded[-decimals:].rstrip("0")
+    return sign + integer + (f".{fraction}" if fraction else "")
 
 
 class RpcProvider:
@@ -326,7 +337,7 @@ class RpcProvider:
 
         chunk_size = self.settings.rpc_max_block_range
         current = (
-            max(start_block, cursor_block or start_block)
+            max(start_block, cursor_block if cursor_block is not None else start_block)
             if direction == "asc"
             else min(end_block, cursor_block if cursor_block is not None else end_block)
         )
@@ -428,6 +439,13 @@ class RpcProvider:
     ) -> ProviderResult:
         address = _validate_address(address)
         normalized_topics = [None if topic is None else _validate_topic(topic) for topic in topics]
+        head = await self.block_number()
+        if end_block > head:
+            raise UniswapError(
+                "RPC_BLOCK_NOT_AVAILABLE",
+                "to-block is above the current RPC head",
+                context={"to_block": end_block, "head_block": head},
+            )
         logs, next_cursor, requests = await self._collect_logs(
             kind="raw-events",
             protocol="raw",
@@ -459,10 +477,19 @@ class RpcProvider:
             data=data,
             provider="rpc",
             source_id=self.endpoints[0].label,
-            indexed_block=end_block,
+            indexed_block=head,
             next_cursor=next_cursor,
             covered_range={"from_block": start_block, "to_block": end_block},
-            extra_meta={"rpc_log_requests": requests},
+            warnings=["result is paginated; follow next_cursor for complete coverage"]
+            if next_cursor
+            else [],
+            extra_meta={
+                "rpc_log_requests": requests,
+                "range_complete": next_cursor is None,
+                "provider_head_block": head,
+                "data_kind": "raw-events",
+                "protocol_version": None,
+            },
         )
 
     async def _eth_call(self, to: str, data: str) -> str:
@@ -476,14 +503,26 @@ class RpcProvider:
             self._eth_call(pool, _TOKEN0_SELECTOR),
             self._eth_call(pool, _TOKEN1_SELECTOR),
         )
+        if len(token0_word) != 66 or len(token1_word) != 66:
+            raise UniswapError("RPC_INVALID_RESPONSE", "pool token call returned invalid ABI data")
         token0 = _validate_address("0x" + token0_word[-40:], field="token0")
         token1 = _validate_address("0x" + token1_word[-40:], field="token1")
         decimals0_word, decimals1_word = await asyncio.gather(
             self._eth_call(token0, _DECIMALS_SELECTOR),
             self._eth_call(token1, _DECIMALS_SELECTOR),
         )
-        decimals0 = int(decimals0_word, 16)
-        decimals1 = int(decimals1_word, 16)
+        if len(decimals0_word) != 66 or len(decimals1_word) != 66:
+            raise UniswapError(
+                "RPC_INVALID_RESPONSE", "token decimals call returned invalid ABI data"
+            )
+        decimals0 = _hex_int(decimals0_word, field="token0.decimals")
+        decimals1 = _hex_int(decimals1_word, field="token1.decimals")
+        if decimals0 > 255 or decimals1 > 255:
+            raise UniswapError(
+                "RPC_INVALID_RESPONSE",
+                "token decimals exceed uint8",
+                context={"decimals0": decimals0, "decimals1": decimals1},
+            )
         return (
             {"address": token0, "symbol": None, "name": None, "decimals": decimals0},
             {"address": token1, "symbol": None, "name": None, "decimals": decimals1},
@@ -508,6 +547,13 @@ class RpcProvider:
             )
         pool = _validate_address(pool_id, field="pool")
         topic = V2_SWAP_TOPIC if protocol == "v2" else V3_SWAP_TOPIC
+        head = await self.block_number()
+        if end_block > head:
+            raise UniswapError(
+                "RPC_BLOCK_NOT_AVAILABLE",
+                "to-block is above the current RPC head",
+                context={"to_block": end_block, "head_block": head},
+            )
         logs, next_cursor, requests = await self._collect_logs(
             kind="swaps-rpc",
             protocol=protocol,
@@ -520,6 +566,8 @@ class RpcProvider:
             direction=direction,
         )
         token0, token1 = await self._pool_tokens(pool)
+        removed_count = sum(bool(item.get("removed", False)) for item in logs)
+        logs = [item for item in logs if not bool(item.get("removed", False))]
         block_numbers = {
             _hex_int(item.get("blockNumber"), field="log.blockNumber") for item in logs
         }
@@ -529,11 +577,23 @@ class RpcProvider:
             data=data,
             provider="rpc",
             source_id=self.endpoints[0].label,
-            indexed_block=end_block,
+            indexed_block=head,
             next_cursor=next_cursor,
             covered_range={"from_block": start_block, "to_block": end_block},
-            warnings=["RPC-derived swaps do not include USD valuation or token symbols"],
-            extra_meta={"rpc_log_requests": requests},
+            warnings=[
+                "RPC-derived swaps do not include USD valuation or token symbols",
+                *(
+                    ["result is paginated; follow next_cursor for complete coverage"]
+                    if next_cursor
+                    else []
+                ),
+                *([f"ignored {removed_count} removed log(s)"] if removed_count else []),
+            ],
+            extra_meta={
+                "rpc_log_requests": requests,
+                "range_complete": next_cursor is None,
+                "provider_head_block": head,
+            },
         )
 
     def _decode_swap(
@@ -577,6 +637,7 @@ class RpcProvider:
             "datetime": utc_from_timestamp(block["timestamp"]),
             "sender": _address_from_topic(topics[1]),
             "recipient": _address_from_topic(topics[2]),
+            "origin": None,
             "token0": token0,
             "token1": token1,
             "amount0": _human_amount(amount0_raw, token0["decimals"]),

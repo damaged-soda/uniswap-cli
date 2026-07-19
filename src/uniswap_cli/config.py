@@ -185,8 +185,12 @@ class Settings:
                 f"alternatively set UNISWAP_SUBGRAPH_URL_{suffix}",
                 context={"chain_id": chain_id, "protocol": protocol},
             )
-        url = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{deployment.subgraph_id}"
-        return Endpoint(url, f"the-graph:{deployment.subgraph_id}", {})
+        url = f"https://gateway.thegraph.com/api/subgraphs/id/{deployment.subgraph_id}"
+        return Endpoint(
+            url,
+            f"the-graph:{deployment.subgraph_id}",
+            {"authorization": f"Bearer {api_key}"},
+        )
 
     def rpc_endpoints(self, chain_id: int) -> tuple[Endpoint, ...]:
         specific = self.env.get(f"UNISWAP_RPC_URL_{chain_id}", "").strip()

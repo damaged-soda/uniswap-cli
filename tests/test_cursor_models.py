@@ -18,3 +18,6 @@ def test_decimal_rendering_and_raw_conversion() -> None:
     assert decimal_string("10.5000") == "10.5"
     assert decimal_to_raw("10.5", 6) == "10500000"
     assert decimal_to_raw("0.0000001", 6) is None
+    assert (
+        decimal_to_raw("-500000000000.123456789012345678", 18) == "-500000000000123456789012345678"
+    )

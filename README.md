@@ -37,6 +37,10 @@ python3.12 -m venv .venv
 pipx install git+https://github.com/damaged-soda/uniswap-cli.git
 ```
 
+wheel 会把 JSON Schema 和 skill 一并安装到环境的
+`share/uniswap-cli/{schemas,skills}`；仓库开发与 personal namespace 仍以仓内
+[`skills/uniswap`](skills/uniswap/) 为正本。
+
 ## 配置
 
 凭据只通过环境注入，绝不放进参数或仓库：
@@ -100,6 +104,9 @@ uniswap swaps list ... --cursor '<opaque cursor>'
 cursor 与 chain、protocol、provider、direction 和过滤条件共同使用；不要把一个查询的 cursor
 挪给另一个查询。
 
+RPC 的 `meta.range` 表示请求过滤范围；`meta.range_complete` 只有在无需继续分页时才为 true，
+同时应检查 `next_cursor`。显式请求高于 RPC head 的 `to-block` 会失败，不会伪装成已覆盖。
+
 ## 输出语义
 
 成功结果：
@@ -110,9 +117,11 @@ cursor 与 chain、protocol、provider、direction 和过滤条件共同使用�
   "data": [],
   "meta": {
     "chain_id": 1,
+    "chain": "ethereum",
     "protocol_version": "v3",
     "provider": "subgraph",
     "source_id": "...",
+    "queried_at": "2026-07-19T00:00:00Z",
     "indexed_block": 0,
     "range": {},
     "next_cursor": null,
@@ -121,7 +130,8 @@ cursor 与 chain、protocol、provider、direction 和过滤条件共同使用�
 }
 ```
 
-运行时错误以同版本 JSON 写入 stderr 并返回 1；参数错误返回 2。`amount0/amount1` 是 pool
+运行时错误以同版本 JSON 写入 stderr 并返回 1；参数错误返回 2。`doctor` 在所请求 provider
+全部不可用时也返回 1，同时仍把检查结果写到 stdout。`amount0/amount1` 是 pool
 视角的 delta：正数进入 pool，负数离开。精确计算使用 `amount*_raw` 字符串，不要转成浮点数。
 
 ## 开发与验证

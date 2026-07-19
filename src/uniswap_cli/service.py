@@ -105,7 +105,9 @@ class UniswapService:
                     ],
                 }
             )
-        return self.render(_local_result(rows, source_id="bundled-chain-registry"))
+        result = _local_result(rows, source_id="bundled-chain-registry")
+        result.extra_meta["protocol_version"] = None
+        return self.render(result)
 
     def protocols(self) -> dict[str, Any]:
         rows = []
@@ -120,7 +122,9 @@ class UniswapService:
                     "normalized_rpc_swaps": protocol in {"v2", "v3"},
                 }
             )
-        return self.render(_local_result(rows, source_id="bundled-protocol-registry"))
+        result = _local_result(rows, source_id="bundled-protocol-registry")
+        result.extra_meta["protocol_version"] = None
+        return self.render(result)
 
     async def token(self, address: str, *, provider: str) -> dict[str, Any]:
         self._require_provider(provider, allowed={"auto", "subgraph"})
@@ -296,13 +300,17 @@ class UniswapService:
             raise unsupported("swap reconciliation currently supports v2 and v3")
         if start_block > end_block:
             raise invalid_argument("--from-block must not exceed --to-block")
-        if max_swaps < 1 or max_swaps > 100_000:
-            raise invalid_argument("max-swaps must be between 1 and 100000")
+        if max_swaps < 1 or max_swaps > 10_000:
+            raise invalid_argument("max-swaps must be between 1 and 10000")
         if sample_limit < 1 or sample_limit > 1_000:
             raise invalid_argument("sample-limit must be between 1 and 1000")
 
         subgraph = SubgraphProvider(self.settings, self.chain.chain_id, self.protocol)
-        rpc = RpcProvider(self.settings, self.chain.chain_id)
+        try:
+            rpc = RpcProvider(self.settings, self.chain.chain_id)
+        except Exception:
+            await subgraph.close()
+            raise
         try:
             start_info, end_info = await asyncio.gather(
                 rpc.block(start_block), rpc.block(end_block)
@@ -454,6 +462,7 @@ class UniswapService:
         result = _local_result(
             {
                 "ok": any(check.get("ok") for check in checks),
+                "degraded": any(not check.get("ok") for check in checks),
                 "checks": checks,
             },
             source_id="doctor",

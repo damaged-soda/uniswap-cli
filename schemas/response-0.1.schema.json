@@ -26,7 +26,7 @@
       "properties": {
         "chain_id": { "type": "integer", "minimum": 1 },
         "chain": { "type": "string", "minLength": 1 },
-        "protocol_version": { "enum": ["v2", "v3", "v4"] },
+        "protocol_version": { "enum": ["v2", "v3", "v4", null] },
         "provider": { "enum": ["local", "subgraph", "rpc", "composite"] },
         "source_id": { "type": "string", "minLength": 1 },
         "queried_at": { "type": "string", "format": "date-time" },

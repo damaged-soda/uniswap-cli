@@ -63,6 +63,8 @@ filters, provider, direction, chain, and protocol when supplying `--cursor`.
 
 - Read `meta.provider`, `source_id`, `indexed_block`, `range`, and `warnings` before drawing a
   conclusion.
+- For RPC pages, require `meta.range_complete: true` or follow `meta.next_cursor`; never infer
+  completeness from the requested block range alone.
 - Treat subgraph USD/TVL values as indexed and derived metrics, not raw chain state.
 - Treat swap `amount0` and `amount1` as pool deltas: positive enters the pool, negative leaves it.
 - Preserve `amount*_raw` strings for exact arithmetic; do not coerce them to floating point.

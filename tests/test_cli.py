@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import uniswap_cli.cli as cli_module
 from uniswap_cli.cli import main
 
 
@@ -44,3 +45,42 @@ def test_table_output(capsys) -> None:
     output = capsys.readouterr().out
     assert "protocol_version" in output
     assert "v3" in output
+
+
+def test_runtime_invalid_argument_uses_exit_two(capsys) -> None:
+    assert (
+        main(
+            [
+                "swaps",
+                "list",
+                "--pool",
+                "0x" + "11" * 20,
+                "--from",
+                "not-a-time",
+            ]
+        )
+        == 2
+    )
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["error"]["code"] == "INVALID_ARGUMENT"
+
+
+def test_unexpected_errors_remain_structured(capsys, monkeypatch) -> None:
+    async def fail(_args):
+        raise ValueError("must not become a traceback")
+
+    monkeypatch.setattr(cli_module, "dispatch", fail)
+    assert main(["chains", "list", "--format", "jsonl"]) == 1
+    captured = capsys.readouterr()
+    assert "Traceback" not in captured.err
+    assert "\n" not in captured.err.strip()
+    payload = json.loads(captured.err)
+    assert payload["error"]["code"] == "INTERNAL_ERROR"
+
+
+def test_doctor_exits_nonzero_when_requested_provider_is_unconfigured(capsys, monkeypatch) -> None:
+    monkeypatch.delenv("UNISWAP_RPC_URL_1", raising=False)
+    monkeypatch.delenv("RPC_URL_1", raising=False)
+    assert main(["doctor", "--provider", "rpc", "--no-archive"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["ok"] is False

@@ -16,10 +16,11 @@ def test_bundled_subgraph_requires_key() -> None:
     assert caught.value.code == "SUBGRAPH_AUTH_MISSING"
 
 
-def test_bundled_subgraph_key_is_only_in_private_url() -> None:
+def test_bundled_subgraph_key_uses_bearer_header_not_url() -> None:
     endpoint = settings({"UNISWAP_THE_GRAPH_API_KEY": "super-secret"}).subgraph_endpoint(1, "v3")
-    assert "super-secret" in endpoint.url
+    assert "super-secret" not in endpoint.url
     assert "super-secret" not in endpoint.label
+    assert endpoint.headers == {"authorization": "Bearer super-secret"}
     assert endpoint.label.startswith("the-graph:")
 
 
@@ -49,6 +50,10 @@ def test_secret_redaction_removes_url_paths_and_secret_fields() -> None:
         "endpoint": "https://host.test/***",
         "api_key": "[redacted]",
     }
+    assert redact_text("failed https://user:password@host.test/key") == (
+        "failed https://host.test/***"
+    )
+    assert sanitize_context({"token0": "0x" + "11" * 20}) == {"token0": "0x" + "11" * 20}
 
 
 def test_chain_aliases() -> None:

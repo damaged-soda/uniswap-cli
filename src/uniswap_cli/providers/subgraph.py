@@ -68,23 +68,46 @@ def _validate_pool_id(value: str, protocol: str) -> str:
     return value.lower()
 
 
-def _offset(
+def _page_state(
     cursor: str | None,
     *,
     kind: str,
     chain_id: int,
     protocol: str,
     query: dict[str, Any],
-) -> int:
+) -> tuple[Any | None, int]:
     if cursor is None:
-        return 0
+        return None, 0
     state = decode_cursor(cursor, kind=kind, chain_id=chain_id, protocol=protocol)
     if state.get("query") != query:
         raise invalid_argument("cursor filters do not match this query")
-    value = state.get("offset")
-    if not isinstance(value, int) or value < 0:
-        raise invalid_argument("cursor contains an invalid offset")
-    return value
+    boundary = state.get("boundary")
+    tie_offset = state.get("tie_offset")
+    if boundary is None or not isinstance(tie_offset, int) or tie_offset < 1:
+        raise invalid_argument("cursor contains an invalid page boundary")
+    if tie_offset > 5_000:
+        raise UniswapError(
+            "SUBGRAPH_TIE_WINDOW_TOO_LARGE",
+            "more than 5000 rows share one pagination boundary",
+            context={"tie_offset": tie_offset},
+        )
+    return boundary, tie_offset
+
+
+def _next_page_state(
+    values: list[Any], previous_boundary: Any | None, previous_tie_offset: int
+) -> tuple[Any, int]:
+    if not values or values[-1] is None:
+        raise UniswapError("SUBGRAPH_INVALID_RESPONSE", "page boundary field is missing")
+    boundary = values[-1]
+    if previous_boundary is not None and str(boundary) == str(previous_boundary):
+        return boundary, previous_tie_offset + len(values)
+    trailing = 0
+    for value in reversed(values):
+        if str(value) != str(boundary):
+            break
+        trailing += 1
+    return boundary, trailing
 
 
 def _meta_from_data(data: dict[str, Any]) -> tuple[int | None, dict[str, Any]]:
@@ -99,6 +122,41 @@ def _meta_from_data(data: dict[str, Any]) -> tuple[int | None, dict[str, Any]]:
         "has_indexing_errors": raw.get("hasIndexingErrors"),
     }
     return int(number) if number is not None else None, _compact(meta)
+
+
+def _required_token(raw: Any, *, field: str) -> dict[str, Any]:
+    model = token_model(raw if isinstance(raw, dict) else None)
+    address = model.get("address") if model else None
+    if not isinstance(address, str) or not _ADDRESS_RE.fullmatch(address):
+        raise UniswapError(
+            "SUBGRAPH_INVALID_RESPONSE",
+            f"{field} is missing a valid token address",
+            context={"field": field},
+        )
+    return model
+
+
+def _required_int(raw: dict[str, Any], field: str) -> int:
+    value = raw.get(field)
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise UniswapError(
+            "SUBGRAPH_INVALID_RESPONSE",
+            f"{field} is missing or invalid",
+            context={"field": field},
+        ) from exc
+
+
+def _required_text(raw: dict[str, Any], field: str) -> str:
+    value = raw.get(field)
+    if not isinstance(value, str) or not value:
+        raise UniswapError(
+            "SUBGRAPH_INVALID_RESPONSE",
+            f"{field} is missing or invalid",
+            context={"field": field},
+        )
+    return value
 
 
 def _token_with_metrics(raw: dict[str, Any], protocol: str) -> dict[str, Any]:
@@ -135,13 +193,16 @@ def _token_with_metrics(raw: dict[str, Any], protocol: str) -> dict[str, Any]:
 
 
 def _pool_v2(raw: dict[str, Any]) -> dict[str, Any]:
+    pool_id = _required_text(raw, "id").lower()
+    if not _ADDRESS_RE.fullmatch(pool_id):
+        raise UniswapError("SUBGRAPH_INVALID_RESPONSE", "pool id is not an address")
     return _compact(
         {
-            "id": normalize_address(raw.get("id")),
-            "pool_address": normalize_address(raw.get("id")),
+            "id": pool_id,
+            "pool_address": pool_id,
             "protocol_version": "v2",
-            "token0": token_model(raw.get("token0")),
-            "token1": token_model(raw.get("token1")),
+            "token0": _required_token(raw.get("token0"), field="token0"),
+            "token1": _required_token(raw.get("token1"), field="token1"),
             "fee_tier": "3000",
             "created_at": utc_from_timestamp(raw.get("createdAtTimestamp")),
             "created_at_timestamp": int(raw["createdAtTimestamp"])
@@ -164,13 +225,17 @@ def _pool_v2(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _pool_v34(raw: dict[str, Any], protocol: str) -> dict[str, Any]:
+    pool_id = _required_text(raw, "id").lower()
+    expected = _POOL_ID_RE if protocol == "v4" else _ADDRESS_RE
+    if not expected.fullmatch(pool_id):
+        raise UniswapError("SUBGRAPH_INVALID_RESPONSE", "pool id has an invalid shape")
     return _compact(
         {
-            "id": normalize_address(raw.get("id")),
-            "pool_address": normalize_address(raw.get("id")) if protocol == "v3" else None,
+            "id": pool_id,
+            "pool_address": pool_id if protocol == "v3" else None,
             "protocol_version": protocol,
-            "token0": token_model(raw.get("token0")),
-            "token1": token_model(raw.get("token1")),
+            "token0": _required_token(raw.get("token0"), field="token0"),
+            "token1": _required_token(raw.get("token1"), field="token1"),
             "fee_tier": decimal_string(raw.get("feeTier")),
             "tick_spacing": decimal_string(raw.get("tickSpacing")),
             "hooks": normalize_address(raw.get("hooks")),
@@ -210,8 +275,8 @@ def _swap_model(raw: dict[str, Any], protocol: str) -> dict[str, Any]:
     pool_raw = pool_raw if isinstance(pool_raw, dict) else {}
     token0_raw = pool_raw.get("token0") or raw.get("token0")
     token1_raw = pool_raw.get("token1") or raw.get("token1")
-    token0 = token_model(token0_raw)
-    token1 = token_model(token1_raw)
+    token0 = _required_token(token0_raw, field="token0")
+    token1 = _required_token(token1_raw, field="token1")
     if protocol == "v2":
         amount0 = _signed_v2_amount(raw, "0")
         amount1 = _signed_v2_amount(raw, "1")
@@ -220,30 +285,51 @@ def _swap_model(raw: dict[str, Any], protocol: str) -> dict[str, Any]:
         amount1 = decimal_string(raw.get("amount1")) or "0"
     tx = raw.get("transaction") if isinstance(raw.get("transaction"), dict) else {}
     timestamp = raw.get("timestamp") or tx.get("timestamp")
-    return _compact(
-        {
-            "id": raw.get("id"),
-            "protocol_version": protocol,
-            "pool_id": normalize_address(pool_raw.get("id")),
-            "transaction_hash": normalize_address(tx.get("id")),
-            "log_index": int(raw["logIndex"]) if raw.get("logIndex") is not None else None,
-            "block_number": int(tx["blockNumber"]) if tx.get("blockNumber") is not None else None,
-            "timestamp": int(timestamp) if timestamp is not None else None,
-            "datetime": utc_from_timestamp(timestamp),
-            "sender": normalize_address(raw.get("sender")),
-            "recipient": normalize_address(raw.get("to") or raw.get("recipient")),
-            "origin": normalize_address(raw.get("from") or raw.get("origin")),
-            "token0": token0,
-            "token1": token1,
-            "amount0": amount0,
-            "amount1": amount1,
-            "amount0_raw": decimal_to_raw(amount0, token0.get("decimals") if token0 else None),
-            "amount1_raw": decimal_to_raw(amount1, token1.get("decimals") if token1 else None),
-            "amount_usd": decimal_string(raw.get("amountUSD")),
-            "sqrt_price_x96": decimal_string(raw.get("sqrtPriceX96")),
-            "tick": decimal_string(raw.get("tick")),
-        }
-    )
+    swap_id = _required_text(raw, "id")
+    pool_id = normalize_address(pool_raw.get("id"))
+    transaction_hash = normalize_address(tx.get("id"))
+    if not isinstance(pool_id, str) or not (
+        _ADDRESS_RE.fullmatch(pool_id) or _POOL_ID_RE.fullmatch(pool_id)
+    ):
+        raise UniswapError("SUBGRAPH_INVALID_RESPONSE", "swap pool id is missing or invalid")
+    if not isinstance(transaction_hash, str) or not _POOL_ID_RE.fullmatch(transaction_hash):
+        raise UniswapError(
+            "SUBGRAPH_INVALID_RESPONSE", "swap transaction hash is missing or invalid"
+        )
+    log_index = _required_int(raw, "logIndex")
+    block_number = _required_int(tx, "blockNumber")
+    timestamp_value = _required_int({"timestamp": timestamp}, "timestamp")
+    amount0_raw = decimal_to_raw(amount0, token0.get("decimals"))
+    amount1_raw = decimal_to_raw(amount1, token1.get("decimals"))
+    if amount0_raw is None or amount1_raw is None:
+        raise UniswapError(
+            "SUBGRAPH_INVALID_RESPONSE",
+            "swap amount cannot be converted to exact raw units",
+            context={"id": swap_id},
+        )
+    return {
+        "id": swap_id,
+        "protocol_version": protocol,
+        "pool_id": pool_id,
+        "transaction_hash": transaction_hash,
+        "log_index": log_index,
+        "block_number": block_number,
+        "timestamp": timestamp_value,
+        "datetime": utc_from_timestamp(timestamp_value),
+        "sender": normalize_address(raw.get("sender")),
+        "recipient": normalize_address(raw.get("to") or raw.get("recipient")),
+        "origin": normalize_address(raw.get("from") or raw.get("origin")),
+        "token0": token0,
+        "token1": token1,
+        "amount0": amount0,
+        "amount1": amount1,
+        "amount0_raw": amount0_raw,
+        "amount1_raw": amount1_raw,
+        "amount_usd": decimal_string(raw.get("amountUSD")),
+        "sqrt_price_x96": decimal_string(raw.get("sqrtPriceX96")),
+        "liquidity_raw": None,
+        "tick": decimal_string(raw.get("tick")),
+    }
 
 
 class SubgraphProvider:
@@ -292,6 +378,10 @@ class SubgraphProvider:
                 str(item.get("message", item)) if isinstance(item, dict) else str(item)
                 for item in errors[:3]
             )
+            for header_value in self.endpoint.headers.values():
+                message = message.replace(header_value, "[redacted]")
+                if header_value.lower().startswith("bearer "):
+                    message = message.replace(header_value[7:], "[redacted]")
             lower = message.lower()
             if "auth" in lower or "authorization" in lower:
                 code = "SUBGRAPH_AUTH_FAILED"
@@ -337,7 +427,6 @@ class SubgraphProvider:
 
     async def get_token(self, address: str) -> ProviderResult:
         address = _validate_token_address(address)
-        id_type = "Bytes" if self.protocol == "v3" else "ID"
         if self.protocol == "v2":
             fields = """
               id symbol name decimals totalSupply tradeVolume tradeVolumeUSD
@@ -349,14 +438,12 @@ class SubgraphProvider:
               feesUSD txCount poolCount totalValueLocked totalValueLockedUSD derivedETH
             """
         query = f"""
-        query Token($id: {id_type}!) {{
+        query Token {{
           {_META}
-          token(id: $id) {{ {fields} }}
+          token(id: "{address}") {{ {fields} }}
         }}
         """
-        data, indexed_block, graph_meta = await self._query(
-            query, {"id": address}, operation="get token"
-        )
+        data, indexed_block, graph_meta = await self._query(query, {}, operation="get token")
         raw = data.get("token")
         if not isinstance(raw, dict):
             raise UniswapError(
@@ -423,13 +510,17 @@ class SubgraphProvider:
             "direction": direction,
             "where": where,
         }
-        offset = _offset(
+        boundary, tie_offset = _page_state(
             cursor,
             kind="pools-list",
             chain_id=self.chain_id,
             protocol=self.protocol,
             query=cursor_query,
         )
+        effective_where = dict(where)
+        if boundary is not None:
+            comparison = "gte" if direction == "asc" else "lte"
+            effective_where[f"{order_field}_{comparison}"] = boundary
         query = f"""
         query Pools($first: Int!, $skip: Int!, $where: {filter_type}!) {{
           {_META}
@@ -441,7 +532,7 @@ class SubgraphProvider:
         """
         data, indexed_block, graph_meta = await self._query(
             query,
-            {"first": limit, "skip": offset, "where": where},
+            {"first": limit, "skip": tie_offset, "where": effective_where},
             operation="list pools",
         )
         rows = data.get(entity)
@@ -454,11 +545,17 @@ class SubgraphProvider:
         ]
         next_cursor = None
         if len(rows) == limit:
+            next_boundary, next_tie_offset = _next_page_state(
+                [item.get(order_field) if isinstance(item, dict) else None for item in rows],
+                boundary,
+                tie_offset,
+            )
             next_cursor = encode_cursor(
                 "pools-list",
                 self.chain_id,
                 self.protocol,
-                offset=offset + len(rows),
+                boundary=next_boundary,
+                tie_offset=next_tie_offset,
                 query=cursor_query,
             )
         return ProviderResult(
@@ -473,16 +570,13 @@ class SubgraphProvider:
     async def get_pool(self, pool_id: str) -> ProviderResult:
         pool_id = _validate_pool_id(pool_id, self.protocol)
         entity = "pair" if self.protocol == "v2" else "pool"
-        id_type = "Bytes" if self.protocol == "v3" else "ID"
         query = f"""
-        query Pool($id: {id_type}!) {{
+        query Pool {{
           {_META}
-          {entity}(id: $id) {{ {self._pool_fields()} }}
+          {entity}(id: "{pool_id}") {{ {self._pool_fields()} }}
         }}
         """
-        data, indexed_block, graph_meta = await self._query(
-            query, {"id": pool_id}, operation="get pool"
-        )
+        data, indexed_block, graph_meta = await self._query(query, {}, operation="get pool")
         raw = data.get(entity)
         if not isinstance(raw, dict):
             raise UniswapError(
@@ -537,13 +631,17 @@ class SubgraphProvider:
             }
         )
         cursor_query = {"direction": direction, "where": where}
-        offset = _offset(
+        boundary, tie_offset = _page_state(
             cursor,
             kind="swaps-list",
             chain_id=self.chain_id,
             protocol=self.protocol,
             query=cursor_query,
         )
+        effective_where = dict(where)
+        if boundary is not None:
+            comparison = "gte" if direction == "asc" else "lte"
+            effective_where[f"timestamp_{comparison}"] = int(boundary)
         query = f"""
         query Swaps($first: Int!, $skip: Int!, $where: Swap_filter!) {{
           {_META}
@@ -555,7 +653,7 @@ class SubgraphProvider:
         """
         data, indexed_block, graph_meta = await self._query(
             query,
-            {"first": limit, "skip": offset, "where": where},
+            {"first": limit, "skip": tie_offset, "where": effective_where},
             operation="list swaps",
         )
         rows = data.get("swaps")
@@ -564,11 +662,17 @@ class SubgraphProvider:
         normalized = [_swap_model(item, self.protocol) for item in rows if isinstance(item, dict)]
         next_cursor = None
         if len(rows) == limit:
+            page_timestamps = [
+                _required_int(item, "timestamp") if isinstance(item, dict) else None
+                for item in rows
+            ]
+            next_boundary, next_tie_offset = _next_page_state(page_timestamps, boundary, tie_offset)
             next_cursor = encode_cursor(
                 "swaps-list",
                 self.chain_id,
                 self.protocol,
-                offset=offset + len(rows),
+                boundary=next_boundary,
+                tie_offset=next_tie_offset,
                 query=cursor_query,
             )
         return ProviderResult(
@@ -646,13 +750,16 @@ class SubgraphProvider:
             }
         )
         cursor_query = {"where": where}
-        offset = _offset(
+        boundary, tie_offset = _page_state(
             cursor,
             kind=f"series-{interval}-{metric}",
             chain_id=self.chain_id,
             protocol=self.protocol,
             query=cursor_query,
         )
+        effective_where = dict(where)
+        if boundary is not None:
+            effective_where[f"{time_field}_gte"] = int(boundary)
         query = f"""
         query Series($first: Int!, $skip: Int!, $where: {filter_type}!) {{
           {_META}
@@ -664,7 +771,7 @@ class SubgraphProvider:
         """
         data, indexed_block, graph_meta = await self._query(
             query,
-            {"first": limit, "skip": offset, "where": where},
+            {"first": limit, "skip": tie_offset, "where": effective_where},
             operation="get series",
         )
         raw_rows = data.get(entity)
@@ -677,11 +784,17 @@ class SubgraphProvider:
         ]
         next_cursor = None
         if len(raw_rows) == limit:
+            page_timestamps = [
+                _required_int(item, time_field) if isinstance(item, dict) else None
+                for item in raw_rows
+            ]
+            next_boundary, next_tie_offset = _next_page_state(page_timestamps, boundary, tie_offset)
             next_cursor = encode_cursor(
                 f"series-{interval}-{metric}",
                 self.chain_id,
                 self.protocol,
-                offset=offset + len(raw_rows),
+                boundary=next_boundary,
+                tie_offset=next_tie_offset,
                 query=cursor_query,
             )
         return ProviderResult(
@@ -709,13 +822,14 @@ class SubgraphProvider:
             if self.protocol == "v2" and interval == "1h"
             else ("periodStartUnix" if interval == "1h" else "date")
         )
-        timestamp = int(raw[time_field])
+        point_id = _required_text(raw, "id")
+        timestamp = _required_int(raw, time_field)
         if self.protocol == "v2":
             volume = raw.get("hourlyVolumeUSD") if interval == "1h" else raw.get("dailyVolumeUSD")
             tx_count = raw.get("hourlyTxns") if interval == "1h" else raw.get("dailyTxns")
             fees = Decimal(str(volume or "0")) * Decimal("0.003")
             point = {
-                "id": raw.get("id"),
+                "id": point_id,
                 "pool_id": pool_id.lower(),
                 "protocol_version": "v2",
                 "interval": interval,
@@ -729,7 +843,7 @@ class SubgraphProvider:
             }
         else:
             point = {
-                "id": raw.get("id"),
+                "id": point_id,
                 "pool_id": pool_id.lower(),
                 "protocol_version": self.protocol,
                 "interval": interval,
@@ -757,9 +871,10 @@ class SubgraphProvider:
             "tx-count": point.get("tx_count"),
             "ohlcv": {key: point.get(key) for key in ("open", "high", "low", "close")},
         }
-        point["metric"] = metric
-        point["value"] = value_map[metric]
-        return _compact(point)
+        result = _compact(point)
+        result["metric"] = metric
+        result["value"] = value_map[metric]
+        return result
 
     async def raw_graphql(
         self, query: str, variables: dict[str, Any] | None = None

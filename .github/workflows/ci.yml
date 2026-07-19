@@ -28,7 +28,13 @@ jobs:
       - name: Format check
         run: ruff format --check .
       - name: Test
-        run: pytest -q
+        run: pytest -q -m "not live"
       - name: Build distributions
         if: matrix.python-version == '3.12'
         run: python -m build
+      - name: Verify distribution contents
+        if: matrix.python-version == '3.12'
+        run: |
+          unzip -l dist/*.whl | grep -F 'share/uniswap-cli/schemas/swap-0.1.schema.json'
+          unzip -l dist/*.whl | grep -F 'share/uniswap-cli/skills/uniswap/SKILL.md'
+          tar -tzf dist/*.tar.gz | grep -F 'tests/fixtures/rpc_v3_swap_log.json'

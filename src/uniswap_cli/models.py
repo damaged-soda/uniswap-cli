@@ -43,21 +43,33 @@ def decimal_to_raw(value: Any, decimals: int | str | None) -> str | None:
     if value is None or decimals is None:
         return None
     try:
-        scaled = Decimal(str(value)) * (Decimal(10) ** int(decimals))
+        number = Decimal(str(value))
+        decimal_places = int(decimals)
     except (InvalidOperation, ValueError, TypeError):
         return None
-    integral = scaled.to_integral_value()
-    if scaled != integral:
+    if not number.is_finite() or decimal_places < 0:
         return None
-    return str(int(integral))
+    sign, digits, exponent = number.as_tuple()
+    coefficient = int("".join(str(digit) for digit in digits) or "0")
+    scaled_exponent = exponent + decimal_places
+    if scaled_exponent >= 0:
+        raw = coefficient * (10**scaled_exponent)
+    else:
+        raw, remainder = divmod(coefficient, 10 ** (-scaled_exponent))
+        if remainder:
+            return None
+    return str(-raw if sign and raw else raw)
 
 
 def token_model(raw: dict[str, Any] | None) -> dict[str, Any] | None:
     if raw is None:
         return None
     decimals = raw.get("decimals")
+    address = normalize_address(str(raw.get("id", "")))
+    if address is None:
+        return None
     return {
-        "address": normalize_address(str(raw.get("id", ""))),
+        "address": address,
         "symbol": raw.get("symbol"),
         "name": raw.get("name"),
         "decimals": int(decimals) if decimals is not None else None,

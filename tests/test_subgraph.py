@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import copy
+import json
+
 import httpx
 import pytest
 
@@ -17,11 +20,17 @@ def _settings(protocol: str) -> Settings:
 @pytest.mark.asyncio
 async def test_v3_pool_list_normalizes_and_paginates(load_fixture) -> None:
     fixture = load_fixture("subgraph_v3_pools.json")
+    requests: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        payload = request.read().decode()
-        assert "orderBy: totalValueLockedUSD" in payload
-        return httpx.Response(200, json=fixture)
+        payload = json.loads(request.content)
+        requests.append(payload)
+        assert "orderBy: totalValueLockedUSD" in payload["query"]
+        if len(requests) == 1:
+            return httpx.Response(200, json=fixture)
+        exhausted = copy.deepcopy(fixture)
+        exhausted["data"]["pools"] = []
+        return httpx.Response(200, json=exhausted)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     provider = SubgraphProvider(_settings("v3"), 1, "v3", http_client=client)
@@ -47,7 +56,17 @@ async def test_v3_pool_list_normalizes_and_paginates(load_fixture) -> None:
             order_by="tvl-usd",
             direction="asc",
         )
+    second = await provider.list_pools(
+        limit=1,
+        cursor=result.next_cursor,
+        order_by="tvl-usd",
+        direction="desc",
+    )
     await client.aclose()
+
+    assert second.data == []
+    assert requests[1]["variables"]["skip"] == 1
+    assert requests[1]["variables"]["where"]["totalValueLockedUSD_lte"] == "200000.1"
 
 
 @pytest.mark.asyncio
@@ -73,6 +92,45 @@ async def test_v2_swaps_use_signed_pool_deltas_and_raw_units(load_fixture) -> No
     assert swap["amount0_raw"] == "10500000"
     assert swap["amount1_raw"] == "-5000000000000000"
     assert swap["block_number"] == 25566509
+
+
+@pytest.mark.asyncio
+async def test_swap_rejects_missing_decimals_instead_of_breaking_schema(load_fixture) -> None:
+    fixture = load_fixture("subgraph_v2_swaps.json")
+    fixture["data"]["swaps"][0]["pair"]["token0"]["decimals"] = None
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=fixture))
+    )
+    provider = SubgraphProvider(_settings("v2"), 1, "v2", http_client=client)
+    with pytest.raises(UniswapError, match="exact raw units"):
+        await provider.list_swaps(
+            pool_id="0x4444444444444444444444444444444444444444",
+            start_timestamp=None,
+            end_timestamp=None,
+            limit=10,
+            cursor=None,
+            direction="asc",
+        )
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_single_v3_pool_query_uses_validated_literal_id(load_fixture) -> None:
+    fixture = load_fixture("subgraph_v3_pools.json")
+    response = copy.deepcopy(fixture)
+    response["data"]["pool"] = response["data"].pop("pools")[0]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert "query Pool($id" not in payload["query"]
+        assert 'pool(id: "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640")' in payload["query"]
+        return httpx.Response(200, json=response)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = SubgraphProvider(_settings("v3"), 1, "v3", http_client=client)
+    result = await provider.get_pool("0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640")
+    await client.aclose()
+    assert result.data["fee_tier"] == "500"
 
 
 @pytest.mark.asyncio

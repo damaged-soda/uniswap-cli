@@ -30,12 +30,12 @@ uniswap
 
 `raw` 命令明确暴露上游语义，不属于稳定规范化接口；它用于研究、调试和新能力试验。
 
-## 通用选项
+## 常用选项
 
 ```text
 --chain <name|chain-id>
 --protocol <v2|v3|v4>
---provider <auto|subgraph|rpc|...>
+--provider <auto|subgraph|rpc>
 --from <RFC3339|unix-seconds>
 --to <RFC3339|unix-seconds>
 --from-block <number>
@@ -45,6 +45,11 @@ uniswap
 --format <json|jsonl|table>
 --timeout <duration>
 ```
+
+这些选项按叶子命令的语义提供，不保证每个命令都接受全部选项；以该命令的 `--help` 为准。
+例如 `raw events` 没有 provider，`swaps reconcile` 固定组合 subgraph 与 RPC。pool 发现另有
+`--order-by`、`--token0/1`，reconcile 另有 `--max-swaps`、`--sample-limit`，doctor 另有
+`--no-archive`，raw GraphQL 另有 `--variables`。
 
 冲突的时间和区块边界应 fail loud，不做隐式猜测。`table` 仅供人阅读，稳定集成使用 JSON。
 
@@ -56,8 +61,10 @@ uniswap
   "data": [],
   "meta": {
     "chain_id": 1,
+    "chain": "ethereum",
     "protocol_version": "v3",
     "provider": "subgraph",
+    "source_id": "the-graph:deployment-id",
     "queried_at": "2026-07-19T00:00:00Z",
     "indexed_block": 0,
     "range": {},
@@ -70,11 +77,22 @@ uniswap
 地址输出统一为小写可比较形式；原始整数使用十进制字符串，不以 IEEE-754 number 表达。
 实体 schema 见 [`schemas/`](../schemas/)。
 
+cursor 绑定生成它的 chain、protocol、provider、过滤范围、排序方向和过滤条件，跨查询复用会
+返回 `INVALID_ARGUMENT`。subgraph 分页使用边界 + 同值 offset，避免全局 `skip` 累积撞上
+The Graph 的深分页窗口；极端情况下若超过 5000 行共享同一边界，会显式返回
+`SUBGRAPH_TIE_WINDOW_TOO_LARGE`。
+
+RPC 的 `range` 是请求过滤范围；`range_complete` 与 `next_cursor` 表示本页是否完整覆盖。
+`indexed_block` 是查询时 provider head，不拿用户输入的 `to-block` 冒充索引高度。
+
 ## 错误
 
 错误输出也使用结构化 JSON，并至少包含稳定 code、可读 message、是否可重试和非敏感上下文。
 首批错误类别：参数错误、能力不支持、认证失败、限流、上游不可用、索引落后、范围过大和
 结果不完整。
+
+参数错误退出码为 2，上游或运行时错误为 1，中断为 130。`doctor` 在请求的 provider 全部
+不可用时返回 1；部分可用时 `data.ok = true` 且 `data.degraded = true`。
 
 ## 环境变量
 

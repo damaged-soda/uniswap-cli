@@ -29,16 +29,28 @@ def _retry_after_seconds(value: str | None) -> float | None:
     return max((parsed - datetime.now(UTC)).total_seconds(), 0.0)
 
 
-def _upstream_message(payload: Any, fallback: str) -> str:
+def _redact_values(value: str, sensitive_values: tuple[str, ...]) -> str:
+    redacted = value
+    for sensitive in sensitive_values:
+        if sensitive:
+            redacted = redacted.replace(sensitive, "[redacted]")
+            if sensitive.lower().startswith("bearer "):
+                redacted = redacted.replace(sensitive[7:], "[redacted]")
+    return redact_text(redacted)
+
+
+def _upstream_message(
+    payload: Any, fallback: str, *, sensitive_values: tuple[str, ...] = ()
+) -> str:
     if isinstance(payload, dict):
         error = payload.get("error")
         if isinstance(error, dict) and error.get("message"):
-            return redact_text(str(error["message"]))[:1_000]
+            return _redact_values(str(error["message"]), sensitive_values)[:1_000]
         if isinstance(error, str):
-            return redact_text(error)[:1_000]
+            return _redact_values(error, sensitive_values)[:1_000]
         if payload.get("message"):
-            return redact_text(str(payload["message"]))[:1_000]
-    return redact_text(fallback)[:1_000]
+            return _redact_values(str(payload["message"]), sensitive_values)[:1_000]
+    return _redact_values(fallback, sensitive_values)[:1_000]
 
 
 class JsonHttpClient:
@@ -86,7 +98,7 @@ class JsonHttpClient:
                         json=json_body,
                         timeout=self.settings.timeout_seconds,
                     )
-            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            except httpx.HTTPError as exc:
                 last_error = UniswapError(
                     "UPSTREAM_NETWORK_ERROR",
                     f"{operation} failed: {type(exc).__name__}",
@@ -126,7 +138,11 @@ class JsonHttpClient:
                         "endpoint": endpoint_label,
                         "status_code": response.status_code,
                         "attempt": attempt,
-                        "upstream_message": _upstream_message(payload, response.text),
+                        "upstream_message": _upstream_message(
+                            payload,
+                            response.text,
+                            sensitive_values=tuple((headers or {}).values()),
+                        ),
                     },
                 )
 

@@ -8,11 +8,17 @@ import pytest
 from uniswap_cli.config import Settings
 from uniswap_cli.cursor import encode_cursor
 from uniswap_cli.errors import UniswapError
-from uniswap_cli.providers.rpc import V3_SWAP_TOPIC, RpcProvider
+from uniswap_cli.providers.rpc import V3_SWAP_TOPIC, RpcProvider, _hex_int, _human_amount
 
 
 def _settings(**extra: str) -> Settings:
     return Settings.from_env({"RPC_URL_1": "https://rpc.test/key", **extra})
+
+
+def test_large_human_amount_is_exact_and_empty_hex_is_rejected() -> None:
+    assert _human_amount(500000000000123456789012345678, 18) == "500000000000.123456789012345678"
+    with pytest.raises(UniswapError):
+        _hex_int("0x", field="test")
 
 
 @pytest.mark.asyncio
@@ -21,6 +27,10 @@ async def test_eth_get_logs_adapts_to_provider_block_limit() -> None:
 
     async def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
+        if payload["method"] == "eth_blockNumber":
+            return httpx.Response(
+                200, json={"jsonrpc": "2.0", "id": payload["id"], "result": hex(119)}
+            )
         assert payload["method"] == "eth_getLogs"
         params = payload["params"][0]
         start, end = int(params["fromBlock"], 16), int(params["toBlock"], 16)
@@ -58,15 +68,21 @@ async def test_eth_get_logs_adapts_to_provider_block_limit() -> None:
     assert result.data == []
     assert requests == [(100, 119), (100, 109), (110, 119)]
     assert result.extra_meta["rpc_log_requests"] == 3
+    assert result.indexed_block == 119
+    assert result.extra_meta["range_complete"] is True
 
 
 @pytest.mark.asyncio
 async def test_log_cursor_is_bound_to_address_topics_and_range() -> None:
-    client = httpx.AsyncClient(
-        transport=httpx.MockTransport(
-            lambda _request: pytest.fail("mismatched cursor must fail before an RPC request")
-        )
-    )
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if payload["method"] == "eth_blockNumber":
+            return httpx.Response(
+                200, json={"jsonrpc": "2.0", "id": payload["id"], "result": hex(119)}
+            )
+        pytest.fail("mismatched cursor must fail before eth_getLogs")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     provider = RpcProvider(_settings(), 1, http_client=client)
     cursor = encode_cursor(
         "raw-events",

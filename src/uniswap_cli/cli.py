@@ -9,7 +9,7 @@ from typing import Any
 
 from uniswap_cli import __version__
 from uniswap_cli.config import Settings
-from uniswap_cli.errors import UniswapError, invalid_argument
+from uniswap_cli.errors import UniswapError, invalid_argument, redact_text
 from uniswap_cli.models import error_envelope
 from uniswap_cli.service import UniswapService, parse_timestamp
 
@@ -37,7 +37,7 @@ class JsonArgumentParser(argparse.ArgumentParser):
         payload = error_envelope(
             {
                 "code": "INVALID_ARGUMENT",
-                "message": message,
+                "message": redact_text(message),
                 "retryable": False,
                 "context": {},
             }
@@ -377,15 +377,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         payload = asyncio.run(dispatch(args))
     except UniswapError as exc:
+        indent = None if args.format == "jsonl" else 2
         print(
-            json.dumps(error_envelope(exc.as_dict()), indent=2, ensure_ascii=False), file=sys.stderr
+            json.dumps(error_envelope(exc.as_dict()), indent=indent, ensure_ascii=False),
+            file=sys.stderr,
         )
-        return 1
+        return 2 if exc.code == "INVALID_ARGUMENT" else 1
     except KeyboardInterrupt:
         error = UniswapError("INTERRUPTED", "operation interrupted")
         print(json.dumps(error_envelope(error.as_dict()), indent=2), file=sys.stderr)
         return 130
+    except Exception as exc:  # defensive boundary: CLI errors must remain machine-readable
+        error = UniswapError(
+            "INTERNAL_ERROR",
+            "unexpected internal error",
+            context={"exception_type": type(exc).__name__},
+        )
+        indent = None if args.format == "jsonl" else 2
+        print(json.dumps(error_envelope(error.as_dict()), indent=indent), file=sys.stderr)
+        return 1
     print(render_output(payload, args.format))
+    if getattr(args, "action", None) == "doctor" and not payload.get("data", {}).get("ok"):
+        return 1
     return 0
 
 
