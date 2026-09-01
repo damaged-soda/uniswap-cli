@@ -504,7 +504,8 @@ class SubgraphProvider:
               token0 { id symbol name decimals }
               token1 { id symbol name decimals }
             """
-        extras = "tickSpacing hooks isExternalLiquidity" if self.protocol == "v4" else ""
+        # The current bundled v4 deployment does not expose this optional field.
+        extras = "tickSpacing hooks" if self.protocol == "v4" else ""
         return f"""
           id createdAtTimestamp createdAtBlockNumber feeTier liquidity sqrtPrice tick
           token0Price token1Price volumeToken0 volumeToken1 volumeUSD feesUSD txCount

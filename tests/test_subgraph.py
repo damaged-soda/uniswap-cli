@@ -135,6 +135,40 @@ async def test_single_v3_pool_query_uses_validated_literal_id(load_fixture) -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("query_kind", ["list", "get"])
+async def test_v4_pool_queries_match_current_subgraph_schema(load_fixture, query_kind) -> None:
+    fixture = load_fixture("subgraph_v4_pools.json")
+    pool_id = fixture["data"]["pools"][0]["id"]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert "isExternalLiquidity" not in payload["query"]
+        assert "tickSpacing" in payload["query"]
+        response = copy.deepcopy(fixture)
+        if query_kind == "get":
+            response["data"]["pool"] = response["data"].pop("pools")[0]
+        return httpx.Response(200, json=response)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = SubgraphProvider(_settings("v4"), 1, "v4", http_client=client)
+    if query_kind == "list":
+        result = await provider.list_pools(
+            limit=1,
+            cursor=None,
+            order_by="tvl-usd",
+            direction="desc",
+        )
+    else:
+        result = await provider.get_pool(pool_id)
+    await client.aclose()
+
+    normalized = result.data[0] if query_kind == "list" else result.data
+    assert normalized["id"] == pool_id
+    assert normalized["hooks"] == "0x3333333333333333333333333333333333333333"
+    assert "external_liquidity" not in normalized
+
+
+@pytest.mark.asyncio
 async def test_v4_ohlcv_series(load_fixture) -> None:
     fixture = load_fixture("subgraph_v4_series.json")
     client = httpx.AsyncClient(
