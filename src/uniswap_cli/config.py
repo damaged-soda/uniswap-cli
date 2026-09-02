@@ -43,6 +43,7 @@ CHAINS: Final[tuple[ChainDefinition, ...]] = (
     ChainDefinition(324, "zksync", ("zksync-era",), "ETH"),
     ChainDefinition(480, "worldchain", ("world-chain",), "ETH"),
     ChainDefinition(1_868, "soneium", (), "ETH"),
+    ChainDefinition(4_663, "robinhood", ("robinhood-chain", "robinhood-mainnet"), "ETH"),
     ChainDefinition(8_453, "base", (), "ETH"),
     ChainDefinition(42_161, "arbitrum", ("arbitrum-one", "arb"), "ETH"),
     ChainDefinition(42_220, "celo", (), "CELO"),

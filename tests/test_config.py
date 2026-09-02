@@ -59,3 +59,6 @@ def test_secret_redaction_removes_url_paths_and_secret_fields() -> None:
 def test_chain_aliases() -> None:
     assert parse_chain("eth").chain_id == 1
     assert parse_chain("1").name == "ethereum"
+    assert parse_chain("robinhood").chain_id == 4663
+    assert parse_chain("robinhood-chain").name == "robinhood"
+    assert parse_chain("4663").name == "robinhood"
