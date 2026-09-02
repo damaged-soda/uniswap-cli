@@ -11,6 +11,9 @@ def test_chains_list_is_machine_readable(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "0.1"
     assert payload["data"][0]["chain_id"] == 1
+    robinhood = next(row for row in payload["data"] if row["name"] == "robinhood")
+    assert robinhood["chain_id"] == 4663
+    assert robinhood["rpc_env"] == ["UNISWAP_RPC_URL_4663", "RPC_URL_4663"]
 
 
 def test_argument_errors_are_structured_json(capsys) -> None:
@@ -45,6 +48,14 @@ def test_table_output(capsys) -> None:
     output = capsys.readouterr().out
     assert "protocol_version" in output
     assert "v3" in output
+
+
+def test_robinhood_protocols_list_uses_registered_chain(capsys) -> None:
+    assert main(["protocols", "list", "--chain", "robinhood", "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["meta"]["chain_id"] == 4663
+    assert payload["meta"]["chain"] == "robinhood"
+    assert [row["protocol_version"] for row in payload["data"]] == ["v2", "v3", "v4"]
 
 
 def test_runtime_invalid_argument_uses_exit_two(capsys) -> None:

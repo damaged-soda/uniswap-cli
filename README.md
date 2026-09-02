@@ -11,6 +11,7 @@ MCP、不运行 daemon、不部署服务器。
 - 自定义 chain ID、subgraph URL 与 RPC fallback
 - pool 列表/详情、token 聚合、swap 历史、1h/1d 时间序列
 - v2/v3 block-bounded RPC swap 解码
+- Robinhood Chain（chain ID 4663）名称、别名与 RPC 配置支持
 - raw GraphQL 和带 topic 的 raw EVM log 查询
 - RPC 范围自适应、重试、限流安全阈值、cursor 分页和 secret redaction
 - subgraph/RPC/chain/archive/indexing `doctor`
@@ -52,6 +53,9 @@ export UNISWAP_THE_GRAPH_API_KEY=...
 # RPC；如果 namespace 已有 RPC_URL_1，CLI 会直接继承
 export UNISWAP_RPC_URL_1=https://...
 
+# Robinhood Chain mainnet（chain ID 4663）
+export UNISWAP_RPC_URL_4663=https://...
+
 # 其他链或自部署 subgraph
 export UNISWAP_SUBGRAPH_URL_8453_V3=https://...
 export UNISWAP_SUBGRAPH_AUTH_TOKEN_8453_V3=...
@@ -74,6 +78,7 @@ Bundled The Graph endpoint 无 key 时会返回显式 `SUBGRAPH_AUTH_MISSING`，
 # 发现
 uniswap chains list
 uniswap protocols list --chain ethereum
+uniswap protocols list --chain robinhood
 uniswap pools list --chain ethereum --protocol v3 --limit 10
 uniswap pools get --chain ethereum --protocol v3 --pool 0x...
 uniswap tokens get --chain ethereum --protocol v3 --address 0x...

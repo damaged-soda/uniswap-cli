@@ -5,13 +5,18 @@
 ## Chain
 
 CLI 内置常用 Uniswap EVM 网络的名称和 chain ID，包括 Ethereum、Optimism、BNB Chain、
-Unichain、Polygon、zkSync、World Chain、Soneium、Base、Arbitrum、Celo、Avalanche、Ink、
-Linea、Blast 和 Zora。未登记的正整数 chain ID 仍可用 `--chain <id>` 访问自定义 RPC 或
-subgraph。
+Unichain、Polygon、zkSync、World Chain、Soneium、Robinhood Chain、Base、Arbitrum、Celo、
+Avalanche、Ink、Linea、Blast 和 Zora。Robinhood Chain 主网使用 `robinhood`（chain ID
+`4663`）；别名为 `robinhood-chain` 和 `robinhood-mainnet`。未登记的正整数 chain ID 仍可用
+`--chain <id>` 访问自定义 RPC 或 subgraph。
 
-只有 Ethereum mainnet 的 v2/v3/v4 The Graph deployment ID 随 CLI 内置；其他链必须显式
-配置 `UNISWAP_SUBGRAPH_URL_<chain-id>_<VERSION>`。这样不会把可能失效或非官方维护的公开
-deployment 静默固化进发布物。
+只有 Ethereum mainnet 的 v2/v3/v4 The Graph deployment ID 随 CLI 内置；Robinhood Chain
+以及其他链必须显式配置 `UNISWAP_SUBGRAPH_URL_<chain-id>_<VERSION>`。这样不会把可能失效
+或非官方维护的公开 deployment 静默固化进发布物。RPC 则配置
+`UNISWAP_RPC_URL_4663`（或兼容的 `RPC_URL_4663`）。
+
+Robinhood Chain 的官方网络参数见 [Robinhood Chain 文档](https://docs.robinhood.com/chain/connecting/)，
+其 Uniswap v2/v3/v4 支持状态见 [Uniswap 支持矩阵](https://support.uniswap.org/hc/en-us/articles/14569415293325-Networks-on-Uniswap)。
 
 ## 能力
 

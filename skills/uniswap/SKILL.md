@@ -26,6 +26,7 @@ arguments, files, or output.
 uniswap doctor --chain ethereum --protocol v3
 uniswap chains list
 uniswap protocols list --chain ethereum
+uniswap protocols list --chain robinhood
 uniswap pools list --chain ethereum --protocol v3 --limit 10
 uniswap pools get --chain ethereum --protocol v3 --pool 0x...
 ```
@@ -33,6 +34,11 @@ uniswap pools get --chain ethereum --protocol v3 --pool 0x...
 The bundled subgraphs require `UNISWAP_THE_GRAPH_API_KEY`. A custom deployment may instead use
 `UNISWAP_SUBGRAPH_URL_<chain-id>_<VERSION>`. RPC commands read `UNISWAP_RPC_URL_<chain-id>` and
 then the shared `RPC_URL_<chain-id>` fallback.
+
+Robinhood Chain mainnet is available as `robinhood` (chain ID `4663`; aliases
+`robinhood-chain` and `robinhood-mainnet`). It has no bundled subgraph deployment in this CLI, so
+configure `UNISWAP_SUBGRAPH_URL_4663_<VERSION>` for indexed queries and
+`UNISWAP_RPC_URL_4663` (or `RPC_URL_4663`) for RPC queries.
 
 ## Query history
 
