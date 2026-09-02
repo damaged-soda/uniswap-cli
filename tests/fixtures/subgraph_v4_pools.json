@@ -1,0 +1,47 @@
+{
+  "data": {
+    "_meta": {
+      "block": {
+        "number": 25880535,
+        "hash": "0xdef456"
+      },
+      "deployment": "QmV4PoolFixture",
+      "hasIndexingErrors": false
+    },
+    "pools": [
+      {
+        "id": "0x7777777777777777777777777777777777777777777777777777777777777777",
+        "createdAtTimestamp": "1784419200",
+        "createdAtBlockNumber": "25566569",
+        "feeTier": "500",
+        "liquidity": "123456789",
+        "sqrtPrice": "987654321",
+        "tick": "202000",
+        "token0Price": "0.0005",
+        "token1Price": "2000",
+        "volumeToken0": "10000",
+        "volumeToken1": "5",
+        "volumeUSD": "20000.5",
+        "feesUSD": "10.25",
+        "txCount": "42",
+        "totalValueLockedToken0": "1000",
+        "totalValueLockedToken1": "0.5",
+        "totalValueLockedUSD": "2000.25",
+        "token0": {
+          "id": "0x1111111111111111111111111111111111111111",
+          "symbol": "TOKEN0",
+          "name": "Token Zero",
+          "decimals": "18"
+        },
+        "token1": {
+          "id": "0x2222222222222222222222222222222222222222",
+          "symbol": "TOKEN1",
+          "name": "Token One",
+          "decimals": "18"
+        },
+        "tickSpacing": "10",
+        "hooks": "0x3333333333333333333333333333333333333333"
+      }
+    ]
+  }
+}
